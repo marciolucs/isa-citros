@@ -49,11 +49,34 @@ div[data-testid="stButton"] > button { min-height:44px; font-size:14px; border-r
     border-radius: 8px; padding: 0.6rem 1rem; margin: 0.4rem 0;
     font-weight: 700; color: #B71C1C; font-size: 0.95rem;
 }
+
+/* ── Seções do grid ── */
 .secao-titulo {
     font-size: 1rem; font-weight: 700; color: #1A237E;
     border-left: 4px solid #1976D2; padding-left: 8px;
     margin: 0.8rem 0 0.3rem;
 }
+.secao-ferrugem {
+    border-left-color: #C62828; color: #B71C1C;
+}
+.secao-leprose {
+    border-left-color: #E65100; color: #BF360C;
+}
+.secao-pragas {
+    border-left-color: #4527A0; color: #311B92;
+}
+.secao-inimigos {
+    border-left-color: #1B5E20; color: #1B5E20;
+}
+
+/* ── Info box ── */
+.info-box {
+    background: #F8F9FA; border: 1px solid #DEE2E6;
+    border-radius: 6px; padding: 0.5rem 0.8rem;
+    font-size: 0.82rem; color: #495057; margin-bottom: 0.5rem;
+}
+.limiar-ok  { color: #1B5E20; font-weight: 600; }
+.limiar-alerta { color: #B71C1C; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -74,6 +97,9 @@ total_plantas = inspecao['total_plantas']
 pragas        = get_pragas()
 summary       = get_inspecao_summary(inspecao_id)
 
+# Mapa nome → praga
+pragas_map = {p['nome']: p for p in pragas}
+
 # ── Datas e dia da semana ──────────────────────────────────────────────────────
 DIAS = ['SEGUNDA-FEIRA', 'TERÇA-FEIRA', 'QUARTA-FEIRA',
         'QUINTA-FEIRA', 'SEXTA-FEIRA', 'SÁBADO', 'DOMINGO']
@@ -83,18 +109,19 @@ def fmt_data(s):
         return '—', ''
     try:
         dt = datetime.strptime(s, '%Y-%m-%d')
-        return f"{dt.month}/{dt.day}/{dt.year}", DIAS[dt.weekday()]
+        return f"{dt.day}/{dt.month}/{dt.year}", DIAS[dt.weekday()]
     except Exception:
         return s, ''
 
 data_fmt, dia_sem   = fmt_data(inspecao['data_inspecao'])
 prox_fmt, prox_dia  = fmt_data(inspecao.get('proxima_inspecao', ''))
 
-# Nº de plantas inspecionadas (máxima registrada ou total)
+# Nº de plantas inspecionadas
 all_plants_reg = set()
 for d in summary.values():
     all_plants_reg |= d['plantas']
 n_inspecionadas = max(all_plants_reg) if all_plants_reg else 0
+total_insp = n_inspecionadas if n_inspecionadas > 0 else total_plantas
 
 # ── Navegação ─────────────────────────────────────────────────────────────────
 nav1, nav2, nav3 = st.columns([2, 2, 2])
@@ -118,7 +145,7 @@ st.markdown(f"""
     <td><span class="fh-lbl">Quadras:</span>
         <span class="fh-red"> {inspecao['numero_quadra']}</span></td>
     <td colspan="2"><span class="fh-lbl">Data da Inspeção</span>
-        <span class="fh-red"> {data_fmt} {dia_sem}</span></td>
+        <span class="fh-red"> {data_fmt} — {dia_sem}</span></td>
     <td rowspan="3" style="text-align:center; font-size:2.5rem; width:60px;">🍊</td>
     <td rowspan="3" class="fh-prox">
         <div class="fh-prox-label">DATA DA PRÓXIMA INSPEÇÃO</div>
@@ -165,78 +192,222 @@ if psil_detectado:
 
 st.divider()
 
-# ── Grade de inspeção (pragas × plantas) ───────────────────────────────────────
-st.markdown('<div class="secao-titulo">📋 Plantas Inspecionadas — Marque os números das plantas com presença</div>',
-            unsafe_allow_html=True)
-
-total_insp = n_inspecionadas if n_inspecionadas > 0 else total_plantas
-
-# Monta DataFrame: linhas = pragas, colunas = p1..pN + % + Limiar
-rows_df = []
-for praga in pragas:
-    pid = praga['id']
-    plants_pest = summary.get(pid, {}).get('plantas', set())
-    inc = calcular_incidencia(len(plants_pest), total_insp)
-    lim = praga['limiar_acao'] * 100
-    acima = inc >= lim and lim > 0
-
-    row = {
-        'Praga / Doença':  praga['nome'],
-        'Parte Avaliada':  praga.get('parte_avaliada', '') or '—',
-        '%':               round(inc, 2),
-        'Limiar %':        round(lim, 0),
-    }
-    for p in range(1, total_plantas + 1):
-        row[f'p{p}'] = p in plants_pest
-    rows_df.append(row)
-
-df = pd.DataFrame(rows_df)
-
-# Configuração das colunas
-cc = {
-    'Praga / Doença': st.column_config.TextColumn(
-        'Praga / Doença', disabled=True, width='medium'),
-    'Parte Avaliada': st.column_config.TextColumn(
-        'Parte Avaliada', disabled=True, width='small'),
-    '%': st.column_config.NumberColumn(
-        '%', disabled=True, width='small', format='%.2f'),
-    'Limiar %': st.column_config.NumberColumn(
-        'Limiar %', disabled=True, width='small', format='%.0f'),
-}
-for p in range(1, total_plantas + 1):
-    cc[f'p{p}'] = st.column_config.CheckboxColumn(str(p), width='small')
-
-edited_df = st.data_editor(
-    df,
-    column_config=cc,
-    hide_index=True,
-    use_container_width=True,
-    num_rows='fixed',
-    key='grid_campo',
+# ══════════════════════════════════════════════════════════════════════════════
+# ── Grade de inspeção — estrutura igual ao ISAeGUI.xlsm aba "Citros" ─────────
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown(
+    '<div class="secao-titulo">📋 Plantas Inspecionadas — marque ✅ as plantas com presença</div>',
+    unsafe_allow_html=True
 )
 
-# Botão Salvar grade
+# Definição das seções na mesma ordem do Excel
+SECOES_GRID = [
+    {
+        "nome": "🔴 ÁCARO FERRUGEM",
+        "css_class": "secao-ferrugem",
+        "info": "Fruto/Folha — marque as plantas com ferrugem. Limiar: **<10 ácaros = 10%** | **≥10 ácaros = 5%**",
+        "pragas": [
+            "Ácaro Ferrugem (< 10 ácaros)",
+            "Ácaro Ferrugem (10 ou + ácaros)",
+        ],
+    },
+    {
+        "nome": "🟠 ÁCARO LEPROSE",
+        "css_class": "secao-leprose",
+        "info": "Fruto/Ramo — vetor da Leprose Cítrica. Limiar: **1%**. Qualquer presença exige ação.",
+        "pragas": [
+            "Ácaro Leprose",
+        ],
+    },
+    {
+        "nome": "🐛 PRAGAS DIVERSAS",
+        "css_class": "secao-pragas",
+        "info": "Marque ✅ as plantas com presença. Veja limiar % em cada linha.",
+        "pragas": [
+            "Ácaro Branco",
+            "Mosca das Frutas",
+            "Bicho Furão",
+            "Ácaro Purpúreo",
+            "Ácaro Mexicano",
+            "Ácaro Texano",
+            "Pulgão Verde",
+            "Pulgão Preto",
+            "Lagarta",
+            "Minadora das Folhas",
+            "Tripes",
+            "Psilídeo",
+        ],
+    },
+    {
+        "nome": "🌿 INIMIGOS NATURAIS",
+        "css_class": "secao-inimigos",
+        "info": "Registrar presença de inimigos naturais — indicam equilíbrio biológico no talhão.",
+        "pragas": [
+            "Inimigos Naturais",
+        ],
+    },
+]
+
+# Helper: monta DataFrame para uma seção
+def _build_secao_df(secao_pragas, pragas_map, summary, total_plantas, total_insp):
+    rows = []
+    ids  = []
+    for pnome in secao_pragas:
+        praga = pragas_map.get(pnome)
+        if not praga:
+            continue
+        pid = praga['id']
+        plants_pest = summary.get(pid, {}).get('plantas', set())
+        inc = calcular_incidencia(len(plants_pest), total_insp)
+        lim = praga['limiar_acao'] * 100
+        row = {
+            'Praga / Doença': praga['nome'],
+            'Parte':          praga.get('parte_avaliada', '') or '—',
+            '%':              round(inc, 2),
+            'Limiar %':       round(lim, 0),
+        }
+        for p in range(1, total_plantas + 1):
+            row[f'p{p}'] = p in plants_pest
+        rows.append(row)
+        ids.append(pid)
+    return pd.DataFrame(rows), ids
+
+
+def _build_cc(total_plantas):
+    cc = {
+        'Praga / Doença': st.column_config.TextColumn('Praga / Doença', disabled=True, width='medium'),
+        'Parte':          st.column_config.TextColumn('Parte',           disabled=True, width='small'),
+        '%':              st.column_config.NumberColumn('%',             disabled=True, width='small', format='%.2f'),
+        'Limiar %':       st.column_config.NumberColumn('Limiar %',      disabled=True, width='small', format='%.0f'),
+    }
+    for p in range(1, total_plantas + 1):
+        cc[f'p{p}'] = st.column_config.CheckboxColumn(str(p), width='small')
+    return cc
+
+
+cc = _build_cc(total_plantas)
+all_edited_sections = {}   # secao_nome → (edited_df, [praga_ids])
+
+for sec in SECOES_GRID:
+    sname = sec['nome']
+    # Título da seção
+    st.markdown(
+        f'<div class="secao-titulo {sec["css_class"]}">{sname}</div>',
+        unsafe_allow_html=True
+    )
+    if sec.get('info'):
+        st.markdown(f'<div class="info-box">ℹ️ {sec["info"]}</div>', unsafe_allow_html=True)
+
+    df_sec, ids_sec = _build_secao_df(
+        sec['pragas'], pragas_map, summary, total_plantas, total_insp
+    )
+    if df_sec.empty:
+        st.caption("_(sem pragas desta seção na base de dados)_")
+        continue
+
+    # Highlight para pragas acima do limiar
+    acima_nomes = []
+    for _, row in df_sec.iterrows():
+        if row['Limiar %'] > 0 and row['%'] >= row['Limiar %']:
+            acima_nomes.append(row['Praga / Doença'])
+    if acima_nomes:
+        st.warning(f"⚠️ Acima do limiar: {', '.join(acima_nomes)}")
+
+    safe_key = (sname
+                .replace(' ', '_')
+                .replace('/', '_')
+                .replace('á', 'a').replace('â', 'a').replace('ã', 'a').replace('à', 'a')
+                .replace('é', 'e').replace('ê', 'e')
+                .replace('í', 'i')
+                .replace('ó', 'o').replace('ô', 'o').replace('õ', 'o')
+                .replace('ú', 'u').replace('ç', 'c')
+                .replace('🔴', '').replace('🟠', '').replace('🐛', '').replace('🌿', '')
+                .strip('_'))
+
+    edited_df = st.data_editor(
+        df_sec,
+        column_config=cc,
+        hide_index=True,
+        use_container_width=True,
+        num_rows='fixed',
+        key=f'grid_{safe_key}',
+    )
+    all_edited_sections[sname] = (edited_df, ids_sec)
+
+# ── Contador de pragas acima do limiar (total) ────────────────────────────────
+acima_count = sum(
+    1 for praga in pragas
+    if calcular_incidencia(
+        len(summary.get(praga['id'], {}).get('plantas', set())), total_insp
+    ) >= praga['limiar_acao'] * 100 > 0
+)
+
+st.divider()
+
+# ── Botão Salvar grade ────────────────────────────────────────────────────────
 col_sv, col_info = st.columns([2, 5])
 with col_sv:
     if st.button("💾 Salvar Ficha de Campo", type="primary", use_container_width=True):
-        for i, row in edited_df.iterrows():
-            praga = pragas[i]
-            marcadas = [p for p in range(1, total_plantas + 1)
-                        if row.get(f'p{p}', False)]
-            save_praga_plantas(inspecao_id, praga['id'], marcadas)
-            if marcadas:
-                update_ultima_planta(inspecao_id, max(marcadas))
+        for sname, (edited_df, ids_sec) in all_edited_sections.items():
+            for i, row in edited_df.iterrows():
+                praga_id = ids_sec[i]
+                marcadas = [p for p in range(1, total_plantas + 1)
+                            if row.get(f'p{p}', False)]
+                save_praga_plantas(inspecao_id, praga_id, marcadas)
+                if marcadas:
+                    update_ultima_planta(inspecao_id, max(marcadas))
         st.success("✅ Ficha de campo salva!")
         st.rerun()
 with col_info:
-    acima_count = sum(
-        1 for praga in pragas
-        if calcular_incidencia(
-            len(summary.get(praga['id'], {}).get('plantas', set())), total_insp
-        ) >= praga['limiar_acao'] * 100 > 0
-    )
     st.info(f"💡 Marque ✅ nas plantas com presença e clique **Salvar**. "
             f"Pragas acima do limiar: **{acima_count}**")
+
+st.divider()
+
+# ── ÍNDICE DE AVALIAÇÃO (legenda lateral) ─────────────────────────────────────
+with st.expander("📊 Índice de Avaliação — Escala de Referência", expanded=False):
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown("""
+**🔴 ÁCARO FERRUGEM** — *Fruto / Folha*
+
+| Condição | Limiar |
+|---|---|
+| < 10 ácaros/cm² | **10% das plantas** |
+| ≥ 10 ácaros/cm² | **5% das plantas** |
+
+**Época crítica:** florada, formação de frutos novos e da safra.
+Priorizar aplicação preventiva em início de safra.
+""")
+        st.markdown("""
+**🟠 ÁCARO LEPROSE** — *Fruto / Ramo*
+
+| Estágio | Limiar |
+|---|---|
+| Ovos / Ninfas / Adultos | **1% das plantas** |
+
+⚠️ Vetor da Leprose Cítrica. Qualquer presença acima de 1% exige
+ação imediata. Eliminar plantas com lesões avançadas.
+""")
+    with col_b:
+        st.markdown("""
+**🐛 PRAGAS DIVERSAS — Limiares**
+
+| Praga | Parte | Limiar |
+|---|---|---|
+| Ácaro Branco | Frutos/Folhas novas | 5% |
+| Mosca das Frutas | Frutos | 5% |
+| Bicho Furão | Frutos | 5% |
+| Ácaro Purpúreo | Frutos/Folhas | 10% |
+| Ácaro Mexicano | Folhas | 10% |
+| Ácaro Texano | Frutos/Folhas | 10% |
+| Pulgão Verde | Veg. Novas | 10% |
+| Pulgão Preto | Veg. Novas | 10% |
+| Lagarta | Folhas/Frutos novos | 5% |
+| Minadora | Veg. Novas | 10% |
+| Tripes | Flores/Frutos novos | 10% |
+| **Psilídeo** | **Veg. Novas** | **🚨 1%** |
+""")
 
 st.divider()
 
@@ -273,7 +444,7 @@ obs_bibliot  = get_observacoes_biblioteca()
 obs_salvas   = get_observacoes_inspecao(inspecao_id)
 obs_sel      = list(obs_salvas)
 
-# Grupos especiais para o Índice de Avaliação (topo, expandidos)
+# Grupos especiais para o Índice de Avaliação
 INDICE_GROUPS = {
     'ÁCAROS DA FERRUGEM': [o for o in obs_bibliot if 'ferrugem' in o['descricao'].lower()
                             or 'ácaro' in o['descricao'].lower()],
@@ -288,9 +459,6 @@ INDICE_GROUPS = {
                             in ('dano_abiotico', 'fisiologico', 'nutricional',
                                 'planta_daninha', 'operacional', 'geral')],
 }
-
-# IDs já mostrados nos grupos especiais
-shown_ids = {o['id'] for grp in INDICE_GROUPS.values() for o in grp}
 
 for grupo_nome, items in INDICE_GROUPS.items():
     if not items:
