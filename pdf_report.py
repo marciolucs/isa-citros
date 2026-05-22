@@ -10,6 +10,13 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from calculations import get_relatorio_pragas, consolidar_quarentenaria
 from database import get_observacoes_inspecao, get_fotos_by_inspecao, get_total_inspecionado
 
+# ── Cores compartilhadas ───────────────────────────────────────────────────────
+_VERDE_FICHA   = colors.HexColor("#009644")   # cabeçalho tabela (mesmo Excel GH)
+_VERDE_ALT     = colors.HexColor("#E1FFD5")   # linha V alternada   (Excel GL)
+_AZUL_TEXTO    = colors.HexColor("#0000FF")   # valores editáveis    (Excel BL)
+_VERMELHO_SINT = colors.HexColor("#FF0000")   # sintomas             (Excel RD)
+_CINZA_BG      = colors.HexColor("#F5F5F5")   # fundo cabeçalho info
+
 VERDE_ESCURO = colors.HexColor("#1A5C2A")
 VERDE_MEDIO = colors.HexColor("#2D7D46")
 VERDE_CLARO = colors.HexColor("#D6EFD8")
@@ -376,6 +383,215 @@ def gerar_pdf(inspecao: dict) -> bytes:
     story.append(Paragraph(
         "Documento gerado pelo Sistema ISA — Gestão de Inspeção Fitossanitária de Citros",
         st['rodape']
+    ))
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PDF da Ficha Quarentenária — formato fiel à planilha Excel
+# ══════════════════════════════════════════════════════════════════════════════
+
+def gerar_pdf_ficha_quarentenaria(
+    inspecao: dict,
+    ficha: dict,
+    ruas: list,
+    doenca_key: str,
+) -> bytes:
+    """Gera o PDF no formato da Ficha de Inspeção de Greening/Cancro em Citros."""
+
+    buffer = BytesIO()
+
+    WH  = colors.white
+    BK  = colors.black
+    CZ  = _CINZA_BG
+
+    # estilos
+    S = {
+        'title':  ParagraphStyle('fq_title',  fontName='Helvetica-Bold', fontSize=13,
+                                 textColor=BK, alignment=TA_CENTER, spaceAfter=4),
+        'lbl':    ParagraphStyle('fq_lbl',    fontName='Helvetica-Bold', fontSize=8,
+                                 textColor=BK),
+        'val_bl': ParagraphStyle('fq_vbl',    fontName='Helvetica-Bold', fontSize=8,
+                                 textColor=_AZUL_TEXTO),
+        'val_rd': ParagraphStyle('fq_vrd',    fontName='Helvetica-Bold', fontSize=8,
+                                 textColor=_VERMELHO_SINT),
+        'th':     ParagraphStyle('fq_th',     fontName='Helvetica-Bold', fontSize=8,
+                                 textColor=WH, alignment=TA_CENTER),
+        'td_c':   ParagraphStyle('fq_tdc',    fontName='Helvetica',      fontSize=7.5,
+                                 textColor=BK, alignment=TA_CENTER),
+        'td_bl':  ParagraphStyle('fq_tdbl',   fontName='Helvetica-Bold', fontSize=7.5,
+                                 textColor=_AZUL_TEXTO, alignment=TA_CENTER),
+        'td_rd':  ParagraphStyle('fq_tdrd',   fontName='Helvetica-Bold', fontSize=7.5,
+                                 textColor=_VERMELHO_SINT),
+        'rodape': ParagraphStyle('fq_rod',    fontName='Helvetica-Bold', fontSize=8,
+                                 textColor=BK, alignment=TA_CENTER),
+        'small':  ParagraphStyle('fq_sm',     fontName='Helvetica',      fontSize=7,
+                                 textColor=colors.grey, alignment=TA_CENTER),
+    }
+
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        leftMargin=1.2*cm, rightMargin=1.2*cm,
+        topMargin=1.2*cm,  bottomMargin=1.2*cm,
+    )
+
+    story = []
+
+    # ── Título ─────────────────────────────────────────────────────────────────
+    doenca_nome = "GREENING (HLB)" if doenca_key == "GREENING" else "CANCRO CÍTRICO"
+    story.append(Paragraph(
+        f"FICHA DE INSPEÇÃO DE {doenca_nome} EM CITROS",
+        S['title']
+    ))
+
+    # ── Calcular totais ────────────────────────────────────────────────────────
+    def _cnt(s):
+        if not s: return 0
+        return len([n.strip() for n in str(s).replace(';', ',').split(',') if n.strip().isdigit()])
+
+    total_pl   = sum(int(r.get('total_plantas_rua', 0) or 0) for r in ruas)
+    total_sint = sum(_cnt(r.get('plantas_sintomas', '')) for r in ruas)
+    pct        = (total_sint / total_pl * 100) if total_pl > 0 else 0.0
+
+    # ── Cabeçalho (3 linhas, espelho do Excel) ─────────────────────────────────
+    W = 17.6 * cm
+    cw_lbl, cw_val = 2.8*cm, 3.4*cm   # label + valor, 4 pares = 4*(2.8+3.4)=24.8 — ajuste abaixo
+    # 2 pares de 3.2+1.8 + 2 pares de 3.2+1.8 = 4 pares de 3.8+0.6... vamos usar 4 colunas uniformes
+    cw = [2.5*cm, 3.4*cm, 2.2*cm, 3.4*cm, 2.2*cm, 3.4*cm, 3.6*cm, 2.4*cm]  # 8 cols = 23.1cm? A4=21cm
+
+    # Simplifica para 4 linhas de info legíveis (não cabe 8 colunas em A4 portrait)
+    def _row(pairs):
+        """pairs = [(label, value, style_val), ...]"""
+        cells = []
+        for lbl, val, sty in pairs:
+            cells.append(Paragraph(f'<b>{lbl}</b>', S['lbl']))
+            cells.append(Paragraph(str(val), S[sty]))
+        return cells
+
+    # larguras: alternando label(2.6)+valor(3.0) × 3 = 17.4cm
+    col_ws = [2.3*cm, 3.0*cm, 2.3*cm, 3.0*cm, 2.3*cm, 3.0*cm]
+
+    cab_rows = [
+        _row([
+            ('Data da Inspeção:', inspecao['data_inspecao'],    'val_bl'),
+            ('Quadra:',           inspecao['numero_quadra'],    'val_bl'),
+            ('Variedade:',        inspecao['variedade'],        'val_bl'),
+        ]),
+        _row([
+            ('Propriedade:',      inspecao['propriedade'],      'val_bl'),
+            ('Proprietário:',     inspecao['proprietario'],     'val_bl'),
+            ('Município:',        f"{inspecao['municipio']}-{inspecao['estado']}", 'val_bl'),
+        ]),
+        _row([
+            ('Ficha Nº:',         ficha['numero_ficha'],        'val_bl'),
+            ('Inspetor:',         ficha['inspetor'],            'val_bl'),
+            ('Total de Plantas:', str(inspecao['total_plantas']), 'val_bl'),
+        ]),
+        _row([
+            ('Total c/ Sintomas:', str(total_sint),             'val_bl'),
+            ('% de Sintomas:',    f'{pct:.3f}%',               'val_rd'),
+            ('Início Inspeção:',  inspecao.get('inicio_inspecao','') or '—', 'val_bl'),
+        ]),
+    ]
+
+    t_cab = Table(cab_rows, colWidths=col_ws, repeatRows=0)
+    t_cab.setStyle(TableStyle([
+        ('BOX',          (0, 0), (-1, -1), 0.75, BK),
+        ('INNERGRID',    (0, 0), (-1, -1), 0.4,  BK),
+        ('BACKGROUND',   (0, 0), (-1, -1), CZ),
+        ('TOPPADDING',   (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING',(0, 0), (-1, -1), 3),
+        ('LEFTPADDING',  (0, 0), (-1, -1), 5),
+        ('VALIGN',       (0, 0), (-1, -1), 'MIDDLE'),
+        ('FONTSIZE',     (0, 0), (-1, -1), 8),
+    ]))
+    story.append(t_cab)
+    story.append(Spacer(1, 6))
+
+    # ── Tabela de ruas (26 linhas, espelho da grade Excel) ─────────────────────
+    rows_map = {r['numero_rua']: r for r in ruas}
+
+    # Cabeçalho da tabela (verde escuro, texto branco)
+    cabecalho_tabela = [
+        Paragraph('<b>Rua</b>',              S['th']),
+        Paragraph('<b>I/V</b>',              S['th']),
+        Paragraph('<b>Sub.\nTotal</b>',      S['th']),
+        Paragraph('<b>Inspetor</b>',         S['th']),
+        Paragraph(f'<b>Números de Plantas com Sintomas de {doenca_key}</b>', S['th']),
+        Paragraph('<b>Qtd</b>',              S['th']),
+    ]
+    linhas_tabela = [cabecalho_tabela]
+
+    for i in range(1, 27):
+        d_default = 'I' if i % 2 == 1 else 'V'
+        r         = rows_map.get(i, {})
+        total_r   = int(r.get('total_plantas_rua', 0) or 0)
+        sint      = r.get('plantas_sintomas', '') or ''
+        ins_rua   = r.get('inspetor_rua', '') or ficha['inspetor']
+        direcao   = r.get('direcao_rua', d_default)
+        qtd       = _cnt(sint)
+
+        linhas_tabela.append([
+            Paragraph(str(i),                                    S['td_bl']),
+            Paragraph(direcao,                                   S['td_bl']),
+            Paragraph(str(total_r) if total_r > 0 else '',      S['td_bl']),
+            Paragraph(ins_rua,                                   S['td_c']),
+            Paragraph(sint,                                      S['td_rd']),
+            Paragraph(str(qtd)  if qtd > 0 else '',             S['td_bl']),
+        ])
+
+    # larguras: Rua(1.1) + IV(1.0) + SubTotal(1.5) + Inspetor(3.2) + Sintomas(9.3) + Qtd(1.4) = 17.5cm
+    cw_tabela = [1.1*cm, 1.0*cm, 1.5*cm, 3.2*cm, 9.3*cm, 1.4*cm]
+
+    rua_styles = [
+        ('BACKGROUND',   (0, 0), (-1, 0), _VERDE_FICHA),
+        ('FONTSIZE',     (0, 0), (-1, -1), 7.5),
+        ('BOX',          (0, 0), (-1, -1), 0.75, BK),
+        ('INNERGRID',    (0, 0), (-1, -1), 0.4, colors.HexColor('#AAAAAA')),
+        ('VALIGN',       (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING',   (0, 0), (-1, -1), 2),
+        ('BOTTOMPADDING',(0, 0), (-1, -1), 2),
+        ('LEFTPADDING',  (0, 0), (-1, -1), 3),
+    ]
+    # linhas V (par: 2, 4, 6, ... → índice de tabela 2, 4, 6, ...)
+    for i in range(1, 27):
+        if i % 2 == 0:          # linha V (par no número da rua)
+            rua_styles.append(('BACKGROUND', (0, i), (-1, i), _VERDE_ALT))
+
+    t_ruas = Table(linhas_tabela, colWidths=cw_tabela, repeatRows=1)
+    t_ruas.setStyle(TableStyle(rua_styles))
+    story.append(t_ruas)
+    story.append(Spacer(1, 8))
+
+    # ── Rodapé ─────────────────────────────────────────────────────────────────
+    story.append(HRFlowable(width="100%", thickness=0.5,
+                            color=colors.grey, spaceAfter=4))
+    story.append(Paragraph(
+        "LUCIANO COSTELLA — TÉCNICO AGRÍCOLA CFTA 17893896825 — "
+        "Cel. (019) 99278-2525 — lucianocostella@yahoo.com.br",
+        S['rodape']
+    ))
+    story.append(Spacer(1, 6))
+
+    ass_data = [[
+        Paragraph(
+            f"<b>Início da Inspeção:</b> {inspecao.get('inicio_inspecao','') or '___________'}",
+            S['small']
+        ),
+        Paragraph("Assinatura: ________________________________", S['small']),
+    ]]
+    t_ass = Table(ass_data, colWidths=[8.8*cm, 8.8*cm])
+    t_ass.setStyle(TableStyle([
+        ('TOPPADDING',    (0,0),(-1,-1), 3),
+        ('BOTTOMPADDING', (0,0),(-1,-1), 3),
+    ]))
+    story.append(t_ass)
+    story.append(Spacer(1, 3))
+    story.append(Paragraph(
+        "Documento gerado pelo Sistema ISA — Gestão de Inspeção Fitossanitária de Citros",
+        S['small']
     ))
 
     doc.build(story)

@@ -120,6 +120,7 @@ def init_db():
         # Migrations for existing databases
         for migration in [
             "ALTER TABLE inspecoes ADD COLUMN ultima_planta INTEGER DEFAULT 0",
+            "ALTER TABLE ruas_quarentenarias ADD COLUMN inspetor_rua TEXT DEFAULT ''",
         ]:
             try:
                 conn.execute(migration)
@@ -405,16 +406,18 @@ def get_fichas_by_inspecao(inspecao_id, doenca=None):
         return [dict(r) for r in conn.execute(q, p).fetchall()]
 
 
-def save_rua_quarentenaria(ficha_id, numero_rua, direcao_rua, total_plantas, plantas_sintomas):
+def save_rua_quarentenaria(ficha_id, numero_rua, direcao_rua, total_plantas, plantas_sintomas, inspetor_rua=''):
     with get_db() as conn:
         conn.execute(
-            """INSERT INTO ruas_quarentenarias (ficha_id, numero_rua, direcao_rua, total_plantas_rua, plantas_sintomas)
-               VALUES (?,?,?,?,?)
+            """INSERT INTO ruas_quarentenarias
+               (ficha_id, numero_rua, direcao_rua, total_plantas_rua, plantas_sintomas, inspetor_rua)
+               VALUES (?,?,?,?,?,?)
                ON CONFLICT(ficha_id, numero_rua) DO UPDATE SET
                    direcao_rua=excluded.direcao_rua,
                    total_plantas_rua=excluded.total_plantas_rua,
-                   plantas_sintomas=excluded.plantas_sintomas""",
-            (ficha_id, numero_rua, direcao_rua, total_plantas, plantas_sintomas)
+                   plantas_sintomas=excluded.plantas_sintomas,
+                   inspetor_rua=excluded.inspetor_rua""",
+            (ficha_id, numero_rua, direcao_rua, int(total_plantas), plantas_sintomas, inspetor_rua)
         )
 
 

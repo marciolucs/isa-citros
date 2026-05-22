@@ -1,37 +1,62 @@
 import streamlit as st
+import pandas as pd
 from database import (
     init_db, get_inspecao_by_id, get_fichas_by_inspecao,
     create_ficha_quarentenaria, save_rua_quarentenaria, get_ruas_by_ficha,
     delete_rua_quarentenaria, delete_ficha_quarentenaria
 )
 from calculations import consolidar_quarentenaria
+from pdf_report import gerar_pdf_ficha_quarentenaria
 from seed_data import seed
 
-st.set_page_config(page_title="Quarentenárias — ISA", page_icon="🦠", layout="wide",
-                   initial_sidebar_state="collapsed")
+st.set_page_config(
+    page_title="Fichas Quarentenárias — ISA",
+    page_icon="🦠",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 init_db()
 seed()
 
 st.markdown("""
 <style>
-div[data-testid="stButton"] > button { min-height:46px; font-size:14px; border-radius:8px; font-weight:600; }
-.header-box { background:linear-gradient(135deg,#7B1FA2,#9C27B0); color:white;
-              padding:0.8rem 1.5rem; border-radius:12px; margin-bottom:1rem; }
-.header-box h2 { color:white; margin:0; }
-.header-box p  { color:#E1BEE7; margin:0.2rem 0 0; font-size:0.82rem; }
-.ficha-card { background:white; border:2px solid #E1BEE7; border-radius:10px;
-              padding:1rem; margin-bottom:0.8rem; }
-.ficha-title { font-weight:700; color:#6A1B9A; font-size:1rem; margin-bottom:0.5rem; }
-.alerta-quaren { background:#FFEBEE; border:2px solid #C62828; border-radius:8px;
-                 padding:0.8rem 1rem; color:#B71C1C; font-weight:700; }
-.ok-quaren { background:#E8F5E9; border:2px solid #2D7D46; border-radius:8px;
-             padding:0.8rem 1rem; color:#1B5E20; font-weight:700; }
-.rua-row { background:#F3E5F5; border-radius:6px; padding:0.4rem 0.8rem; margin:0.2rem 0; font-size:0.88rem; }
+div[data-testid="stButton"] > button {
+    min-height: 44px; font-size: 14px; border-radius: 8px; font-weight: 600;
+}
+.header-box {
+    background: linear-gradient(135deg, #1B5E20, #2E7D32);
+    color: white; padding: 0.8rem 1.5rem; border-radius: 12px; margin-bottom: 1rem;
+}
+.header-box h2 { color: white; margin: 0; }
+.header-box p  { color: #C8E6C9; margin: 0.2rem 0 0; font-size: 0.82rem; }
+.insp-meta {
+    background: #F9FBE7; border: 1px solid #C5E1A5;
+    border-radius: 10px; padding: 0.7rem 1.2rem; margin-bottom: 0.8rem;
+}
+.insp-meta table { width: 100%; border-collapse: collapse; }
+.insp-meta td { padding: 3px 10px; font-size: 0.87rem; }
+.insp-meta .lbl { font-weight: 700; color: #33691E; width: 130px; }
+.insp-meta .val { color: #1a1a1a; }
+.m-card {
+    background: white; border: 2px solid #E8F5E9; border-radius: 8px;
+    padding: 0.55rem 0.4rem; text-align: center;
+}
+.m-val  { font-size: 1.5rem; font-weight: 700; color: #1B5E20; line-height: 1.1; }
+.m-lab  { font-size: 0.72rem; color: #666; margin-top: 2px; }
+.alerta { background:#FFEBEE; border:2px solid #C62828; border-radius:8px;
+          padding:0.7rem 1rem; color:#B71C1C; font-weight:700; margin:0.3rem 0; }
+.ok     { background:#E8F5E9; border:2px solid #2E7D32; border-radius:8px;
+          padding:0.7rem 1rem; color:#1B5E20; font-weight:700; margin:0.3rem 0; }
+.ficha-titulo {
+    font-size: 1rem; font-weight: 700; color: #1B5E20;
+    background: #F1F8E9; border-left: 4px solid #2E7D32;
+    padding: 0.4rem 0.8rem; border-radius: 0 6px 6px 0; margin-bottom: 0.4rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
 # ── Verificar sessão ───────────────────────────────────────────────────────────
-if 'inspecao_id' not in st.session_state or st.session_state.inspecao_id is None:
+if 'inspecao_id' not in st.session_state or not st.session_state.inspecao_id:
     st.warning("Nenhuma inspeção ativa. Configure primeiro no **Painel**.")
     if st.button("→ Ir ao Painel"):
         st.switch_page("pages/1_Painel.py")
@@ -46,188 +71,241 @@ if not inspecao:
 # ── Cabeçalho ─────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div class="header-box">
-    <h2>🦠 Fichas de Doenças Quarentenárias</h2>
-    <p>{inspecao['propriedade']} — Q.{inspecao['numero_quadra']} | {inspecao['variedade']} | {inspecao['data_inspecao']}</p>
+    <h2>🦠 Ficha de Inspeção de Doenças Quarentenárias</h2>
+    <p>{inspecao['propriedade']} — Quadra {inspecao['numero_quadra']} &nbsp;|&nbsp;
+       {inspecao['variedade']} &nbsp;|&nbsp; {inspecao['data_inspecao']}</p>
 </div>
 """, unsafe_allow_html=True)
 
-col_nav1, col_nav2, col_nav3 = st.columns([2, 2, 2])
-with col_nav1:
+col_n1, col_n2, col_n3 = st.columns(3)
+with col_n1:
     if st.button("← Voltar ao Campo", use_container_width=True):
         st.switch_page("pages/2_Campo.py")
-with col_nav2:
+with col_n2:
     if st.button("📊 Ver Relatório", use_container_width=True):
         st.switch_page("pages/4_Relatorio.py")
-with col_nav3:
+with col_n3:
     if st.button("← Início", use_container_width=True):
         st.switch_page("app.py")
 
 st.divider()
 
-# ── Seleção da doença ─────────────────────────────────────────────────────────
-doenca_sel = st.radio(
-    "Selecione a doença quarentenária:",
-    ["GREENING (HLB)", "CANCRO CÍTRICO"],
-    horizontal=True
-)
-doenca_key = "GREENING" if "GREENING" in doenca_sel else "CANCRO"
+# ── Dados da inspeção (espelho do cabeçalho da planilha Excel) ────────────────
+st.markdown(f"""
+<div class="insp-meta">
+<table>
+  <tr>
+    <td class="lbl">Data da Inspeção:</td><td class="val">{inspecao['data_inspecao']}</td>
+    <td class="lbl">Quadra:</td><td class="val">{inspecao['numero_quadra']}</td>
+    <td class="lbl">Variedade:</td><td class="val">{inspecao['variedade']}</td>
+    <td class="lbl">Total de Plantas:</td><td class="val">{inspecao['total_plantas']}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Propriedade:</td><td class="val">{inspecao['propriedade']}</td>
+    <td class="lbl">Proprietário:</td><td class="val">{inspecao['proprietario']}</td>
+    <td class="lbl">Município:</td><td class="val">{inspecao['municipio']}-{inspecao['estado']}</td>
+    <td class="lbl">Inspetor:</td><td class="val">{inspecao['inspetor']}</td>
+  </tr>
+</table>
+</div>
+""", unsafe_allow_html=True)
 
-emoji_doenca = "🟡" if doenca_key == "GREENING" else "🔴"
-st.markdown(f"### {emoji_doenca} Fichas de {doenca_sel}")
+st.divider()
 
-# ── Fichas existentes ─────────────────────────────────────────────────────────
-fichas = get_fichas_by_inspecao(inspecao_id, doenca=doenca_key)
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def contar_sintomas(s: str) -> int:
+    if not s:
+        return 0
+    return len([n.strip() for n in str(s).replace(';', ',').split(',') if n.strip().isdigit()])
 
-if fichas:
+
+def build_df(ruas: list, inspetor_ficha: str) -> pd.DataFrame:
+    """Constrói DataFrame de 26 linhas a partir dos dados do banco."""
+    rows_map = {r['numero_rua']: r for r in ruas}
+    rows = []
+    for i in range(1, 27):
+        dir_default = 'I' if i % 2 == 1 else 'V'
+        r = rows_map.get(i, {})
+        sint = r.get('plantas_sintomas', '') or ''
+        rows.append({
+            'Rua':               i,
+            'I/V':               r.get('direcao_rua', dir_default),
+            'Sub. Total':        int(r.get('total_plantas_rua', 0) or 0),
+            'Inspetor':          r.get('inspetor_rua', '') or inspetor_ficha,
+            'Plantas c/ Sintoma': sint,
+            'Qtd':               contar_sintomas(sint),
+        })
+    return pd.DataFrame(rows)
+
+
+def salvar_ficha(ficha_id: int, inspetor_ficha: str, edited_df: pd.DataFrame):
+    """Persiste o DataFrame editado no banco."""
+    saved = 0
+    for _, row in edited_df.iterrows():
+        rua_num = int(row['Rua'])
+        total   = int(row['Sub. Total'])   if pd.notna(row['Sub. Total'])        else 0
+        sint    = str(row['Plantas c/ Sintoma']) if pd.notna(row['Plantas c/ Sintoma']) else ''
+        ins     = str(row['Inspetor'])     if pd.notna(row['Inspetor'])           else inspetor_ficha
+        div     = str(row['I/V'])          if pd.notna(row['I/V'])                else ('I' if rua_num % 2 == 1 else 'V')
+        sint    = sint.strip()
+
+        if total > 0 or sint:
+            save_rua_quarentenaria(ficha_id, rua_num, div, total, sint, ins)
+            saved += 1
+        else:
+            delete_rua_quarentenaria(ficha_id, rua_num)
+    return saved
+
+
+# ── Render por doença ─────────────────────────────────────────────────────────
+def render_doenca(doenca_key: str, inspetor_padrao: str):
+    fichas = get_fichas_by_inspecao(inspecao_id, doenca=doenca_key)
+
+    # ── Painel de consolidação ────────────────────────────────────────────────
+    if fichas:
+        cons = consolidar_quarentenaria(inspecao_id, doenca_key)
+        if cons['total_vistoriadas'] > 0:
+            c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
+            cor_sint = "#C62828" if cons['total_sintomas'] > 0 else "#1B5E20"
+            cor_pct  = "#C62828" if cons['notificar']        else "#1B5E20"
+            with c1:
+                st.markdown(
+                    f'<div class="m-card"><div class="m-val">{cons["total_vistoriadas"]}</div>'
+                    f'<div class="m-lab">Total Vistoriado</div></div>', unsafe_allow_html=True)
+            with c2:
+                st.markdown(
+                    f'<div class="m-card"><div class="m-val" style="color:{cor_sint}">{cons["total_sintomas"]}</div>'
+                    f'<div class="m-lab">Com Sintomas</div></div>', unsafe_allow_html=True)
+            with c3:
+                st.markdown(
+                    f'<div class="m-card"><div class="m-val" style="color:{cor_pct}">{cons["percentual"]:.3f}%</div>'
+                    f'<div class="m-lab">% Incidência</div></div>', unsafe_allow_html=True)
+            with c4:
+                if cons['notificar']:
+                    st.markdown('<div class="alerta">🚨 NOTIFICAÇÃO OBRIGATÓRIA<br/>'
+                                '<small>Comunicar imediatamente à Defesa Agropecuária.</small></div>',
+                                unsafe_allow_html=True)
+                else:
+                    st.markdown('<div class="ok">✅ Nenhuma planta com sintoma registrada.</div>',
+                                unsafe_allow_html=True)
+            st.divider()
+
+    # ── Fichas existentes ─────────────────────────────────────────────────────
     for ficha in fichas:
-        ruas = get_ruas_by_ficha(ficha['id'])
-        total_plantas_ficha = sum(r['total_plantas_rua'] for r in ruas)
-        total_sintomas_ficha = sum(
-            len([n for n in r['plantas_sintomas'].replace(';', ',').split(',') if n.strip().isdigit()])
-            for r in ruas
+        ruas          = get_ruas_by_ficha(ficha['id'])
+        total_pl      = sum(r['total_plantas_rua'] for r in ruas)
+        total_sint    = sum(contar_sintomas(r['plantas_sintomas']) for r in ruas)
+        pct           = (total_sint / total_pl * 100) if total_pl > 0 else 0.0
+
+        st.markdown(
+            f'<div class="ficha-titulo">📋 {ficha["numero_ficha"]} &nbsp;·&nbsp; '
+            f'Inspetor: {ficha["inspetor"]} &nbsp;|&nbsp; '
+            f'{total_pl} plantas vistoriadas &nbsp;·&nbsp; '
+            f'{total_sint} com sintoma &nbsp;·&nbsp; {pct:.3f}%</div>',
+            unsafe_allow_html=True
         )
 
-        with st.expander(
-            f"📋 {ficha['numero_ficha']} — Inspetor: {ficha['inspetor']} | "
-            f"{total_plantas_ficha} plantas | {total_sintomas_ficha} com sintoma",
-            expanded=True
-        ):
-            # Tabela de ruas existentes
-            if ruas:
-                cols_header = st.columns([1, 1, 2, 5, 1])
-                cols_header[0].markdown("**Rua**")
-                cols_header[1].markdown("**Dir.**")
-                cols_header[2].markdown("**Total Plantas**")
-                cols_header[3].markdown("**Plantas com Sintoma**")
-                cols_header[4].markdown("**Qtd**")
+        df = build_df(ruas, ficha['inspetor'])
 
-                for rua in ruas:
-                    sintomas_str = rua['plantas_sintomas']
-                    nums = [n.strip() for n in sintomas_str.replace(';', ',').split(',') if n.strip().isdigit()]
-                    qtd = len(nums)
-                    cols_r = st.columns([1, 1, 2, 5, 1])
-                    cols_r[0].markdown(f"**{rua['numero_rua']}**")
-                    cols_r[1].markdown(rua['direcao_rua'])
-                    cols_r[2].markdown(str(rua['total_plantas_rua']))
-                    cols_r[3].markdown(sintomas_str if sintomas_str else "—")
-                    cols_r[4].markdown(f"**{qtd}**" if qtd > 0 else "—")
+        edited_df = st.data_editor(
+            df,
+            column_config={
+                'Rua': st.column_config.NumberColumn(
+                    'Rua', disabled=True, width='small'),
+                'I/V': st.column_config.SelectboxColumn(
+                    'I/V', options=['I', 'V'], width='small'),
+                'Sub. Total': st.column_config.NumberColumn(
+                    'Sub. Total', min_value=0, max_value=9999, width='small'),
+                'Inspetor': st.column_config.TextColumn(
+                    'Inspetor', width='medium'),
+                'Plantas c/ Sintoma': st.column_config.TextColumn(
+                    'Plantas c/ Sintoma', width='large',
+                    help='Números separados por vírgula — ex: 11, 12, 45'),
+                'Qtd': st.column_config.NumberColumn(
+                    'Qtd', disabled=True, width='small'),
+            },
+            hide_index=True,
+            use_container_width=True,
+            num_rows='fixed',
+            key=f"grid_{ficha['id']}",
+        )
 
-                st.divider()
+        # Botões de ação
+        ba1, ba2, ba3 = st.columns([2, 2, 2])
 
-            # Formulário para adicionar/editar rua
-            st.markdown("**Adicionar / Atualizar Rua:**")
-            with st.form(key=f"form_rua_{ficha['id']}"):
-                col_r1, col_r2, col_r3 = st.columns([1, 2, 5])
-                with col_r1:
-                    prox_rua = (max(r['numero_rua'] for r in ruas) + 1) if ruas else 1
-                    num_rua = st.number_input("Rua Nº", min_value=1, max_value=200,
-                                              value=prox_rua, step=1)
-                with col_r2:
-                    dir_rua = st.radio("Direção", ["I (Ida)", "V (Volta)"],
-                                       horizontal=True, key=f"dir_{ficha['id']}")
-                    dir_code = "I" if "I" in dir_rua else "V"
+        with ba1:
+            if st.button("💾 Salvar Ficha", key=f"save_{ficha['id']}",
+                         type="primary", use_container_width=True):
+                n = salvar_ficha(ficha['id'], ficha['inspetor'], edited_df)
+                st.success(f"✅ {n} linha(s) salvas!")
+                st.rerun()
 
-                with col_r3:
-                    total_pl_rua = st.number_input("Total de Plantas na Rua",
-                                                    min_value=0, max_value=2000,
-                                                    value=0, step=1, key=f"tot_{ficha['id']}")
+        with ba2:
+            key_pdf = f"pdf_bytes_{ficha['id']}"
+            if st.button("📄 Gerar PDF da Ficha", key=f"btn_pdf_{ficha['id']}",
+                         use_container_width=True):
+                ruas_db = get_ruas_by_ficha(ficha['id'])
+                pdf_b   = gerar_pdf_ficha_quarentenaria(inspecao, ficha, ruas_db, doenca_key)
+                st.session_state[key_pdf] = pdf_b
+                st.rerun()
 
-                plantas_sint = st.text_input(
-                    "Números das Plantas com Sintoma (separados por vírgula)",
-                    placeholder="ex: 11, 12, 13, 45",
-                    key=f"sint_{ficha['id']}"
+            if key_pdf in st.session_state:
+                nome_pdf = (
+                    f"Ficha_{doenca_key}_{ficha['numero_ficha'].replace(' ','_')}"
+                    f"_{inspecao['data_inspecao'].replace('-','')}.pdf"
+                )
+                st.download_button(
+                    "⬇️ Baixar PDF da Ficha",
+                    data=st.session_state[key_pdf],
+                    file_name=nome_pdf,
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key=f"dl_{ficha['id']}",
                 )
 
-                if plantas_sint.strip():
-                    nums_preview = [n.strip() for n in plantas_sint.replace(';', ',').split(',')
-                                    if n.strip().isdigit()]
-                    st.caption(f"✅ {len(nums_preview)} plantas com sintoma identificadas: {', '.join(nums_preview)}")
-
-                col_btn_add, col_btn_del = st.columns(2)
-                with col_btn_add:
-                    btn_add_rua = st.form_submit_button(f"💾 Salvar Rua {num_rua}", use_container_width=True)
-                with col_btn_del:
-                    btn_del_rua = st.form_submit_button(f"🗑️ Excluir Rua {num_rua}", use_container_width=True)
-
-                if btn_add_rua:
-                    save_rua_quarentenaria(
-                        ficha_id=ficha['id'],
-                        numero_rua=num_rua,
-                        direcao_rua=dir_code,
-                        total_plantas=total_pl_rua,
-                        plantas_sintomas=plantas_sint.strip()
-                    )
-                    st.success(f"Rua {num_rua} salva!")
-                    st.rerun()
-
-                if btn_del_rua:
-                    delete_rua_quarentenaria(ficha['id'], num_rua)
-                    st.warning(f"Rua {num_rua} removida.")
-                    st.rerun()
-
-            # Excluir ficha
-            if st.button(f"🗑️ Excluir {ficha['numero_ficha']} completa", key=f"del_ficha_{ficha['id']}",
-                         type="secondary"):
+        with ba3:
+            if st.button("🗑️ Excluir Ficha", key=f"del_{ficha['id']}",
+                         use_container_width=True):
                 delete_ficha_quarentenaria(ficha['id'])
+                st.session_state.pop(f"pdf_bytes_{ficha['id']}", None)
                 st.warning("Ficha removida.")
                 st.rerun()
 
-st.divider()
+        st.divider()
 
-# ── Criar nova ficha ───────────────────────────────────────────────────────────
-st.subheader("➕ Criar Nova Ficha")
-with st.form("form_nova_ficha"):
-    num_fichas_existentes = len(fichas)
-    sugestao_num = f"FICHA {num_fichas_existentes + 1:02d}"
+    # ── Criar nova ficha ──────────────────────────────────────────────────────
+    with st.expander("➕ Criar Nova Ficha", expanded=(len(fichas) == 0)):
+        with st.form(f"nova_ficha_{doenca_key}"):
+            nf_col1, nf_col2 = st.columns(2)
+            with nf_col1:
+                num_f = st.text_input("Número da Ficha",
+                                      value=f"FICHA {len(fichas) + 1:02d}")
+            with nf_col2:
+                opcoes_ins = ["Luciano Costella", "Higor", "Hig/Luc", "Outro"]
+                ins_sel = st.selectbox("Inspetor", opcoes_ins,
+                                       key=f"ins_{doenca_key}")
+                if ins_sel == "Outro":
+                    ins_sel = st.text_input("Nome do inspetor",
+                                            key=f"ins_outro_{doenca_key}")
 
-    col_nf1, col_nf2 = st.columns(2)
-    with col_nf1:
-        num_ficha_nova = st.text_input("Número da Ficha", value=sugestao_num)
-    with col_nf2:
-        inspetores = ["Luciano Costella", "Higor", "Hig/Luc", "Outro"]
-        inspetor_ficha = st.selectbox("Inspetor", inspetores, key="ins_nova_ficha")
-        if inspetor_ficha == "Outro":
-            inspetor_ficha = st.text_input("Nome do inspetor", key="ins_outro_ficha")
+            if st.form_submit_button("✅ Criar Ficha", use_container_width=True,
+                                     type="primary"):
+                if num_f.strip() and ins_sel.strip():
+                    create_ficha_quarentenaria(
+                        inspecao_id, doenca_key, ins_sel.strip(),
+                        num_f.strip().upper()
+                    )
+                    st.success(f"Ficha '{num_f.upper()}' criada! Preencha as linhas na tabela.")
+                    st.rerun()
+                else:
+                    st.error("Informe o número da ficha e o nome do inspetor.")
 
-    if st.form_submit_button("Criar Ficha", use_container_width=True, type="primary"):
-        if num_ficha_nova.strip() and inspetor_ficha.strip():
-            nova_ficha_id = create_ficha_quarentenaria(
-                inspecao_id=inspecao_id,
-                doenca=doenca_key,
-                inspetor=inspetor_ficha,
-                numero_ficha=num_ficha_nova.strip().upper()
-            )
-            st.success(f"{num_ficha_nova.upper()} criada! Agora adicione as ruas.")
-            st.rerun()
-        else:
-            st.error("Informe o número da ficha e o inspetor.")
 
-st.divider()
+# ── Tabs ──────────────────────────────────────────────────────────────────────
+tab_g, tab_c = st.tabs(["🟡 GREENING (HLB)", "🔴 CANCRO CÍTRICO"])
 
-# ── Consolidação ──────────────────────────────────────────────────────────────
-if fichas:
-    st.subheader(f"📊 Consolidação — {doenca_sel}")
-    cons = consolidar_quarentenaria(inspecao_id, doenca_key)
+with tab_g:
+    render_doenca("GREENING", inspecao['inspetor'])
 
-    if cons['total_vistoriadas'] > 0:
-        col_c1, col_c2, col_c3 = st.columns(3)
-        col_c1.metric("Total Vistoriado", f"{cons['total_vistoriadas']} plantas")
-        col_c2.metric("Com Sintomas", f"{cons['total_sintomas']} plantas",
-                      delta=None if cons['total_sintomas'] == 0 else f"⚠️ Notificar")
-        col_c3.metric("% Incidência", f"{cons['percentual']:.3f}%")
-
-        if cons['notificar']:
-            st.markdown("""
-            <div class="alerta-quaren">
-                🚨 NOTIFICAÇÃO OBRIGATÓRIA — Plantas com sintomas identificadas!<br/>
-                Comunicar imediatamente à Defesa Agropecuária estadual.
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div class="ok-quaren">
-                ✅ Nenhuma planta com sintoma registrada nesta doença.
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.info("Adicione ruas às fichas para ver a consolidação.")
+with tab_c:
+    render_doenca("CANCRO", inspecao['inspetor'])
