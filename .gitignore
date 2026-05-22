@@ -1,0 +1,25 @@
+# Banco de dados local (dados sensíveis — nunca subir)
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Secrets do Streamlit
+.streamlit/secrets.toml
+
+# Ambientes virtuais
+venv/
+.venv/
+env/
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
