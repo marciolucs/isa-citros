@@ -285,6 +285,20 @@ def save_planta_pragas(inspecao_id, numero_planta, praga_ids):
             )
 
 
+def save_praga_plantas(inspecao_id, praga_id, plant_nums):
+    """Salva todas as plantas com determinada praga (substitui registros anteriores)."""
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM inspecao_pragas WHERE inspecao_id=? AND praga_id=?",
+            (inspecao_id, praga_id)
+        )
+        for p_num in plant_nums:
+            conn.execute(
+                "INSERT OR IGNORE INTO inspecao_pragas (inspecao_id, numero_planta, praga_id) VALUES (?,?,?)",
+                (inspecao_id, int(p_num), int(praga_id))
+            )
+
+
 def get_planta_pragas(inspecao_id, numero_planta):
     with get_db() as conn:
         rows = conn.execute(
