@@ -61,6 +61,11 @@ if not inspecao:
     st.error("Inspeção não encontrada.")
     st.stop()
 
+# Mensagem vinda do Painel (criou/continuou inspeção)
+_flash = st.session_state.pop('flash_campo', None)
+if _flash:
+    st.success(f"✅ {_flash}")
+
 total_plantas = inspecao['total_plantas']
 pragas        = get_pragas()
 summary       = get_inspecao_summary(inspecao_id)
@@ -390,6 +395,13 @@ else:
 st.divider()
 
 # ── Exportar PDF da Ficha de Campo (disponível nos dois modos) ────────────────
+# Recarrega o resumo do banco para saber se há plantas salvas
+_summary_atual = get_inspecao_summary(inspecao_id)
+_tem_dados = any(len(d['plantas']) > 0 for d in _summary_atual.values())
+if not _tem_dados:
+    st.info("ℹ️ Nenhuma planta salva ainda nesta inspeção. Marque as plantas acima e "
+            "clique em **💾 Salvar** antes de gerar o PDF, senão ele sai em branco.")
+
 col_pdf1, col_pdf2 = st.columns([2, 3])
 with col_pdf1:
     if st.button("📄 Gerar PDF da Ficha de Campo", use_container_width=True):

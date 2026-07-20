@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 from database import (
     init_db, get_inspecao_by_id, get_inspecoes_recentes,
-    get_observacoes_inspecao, finalize_inspecao
+    get_observacoes_inspecao, finalize_inspecao, get_plantas_inspecionadas
 )
 from calculations import get_relatorio_pragas, consolidar_quarentenaria, plantas_inspecionadas
 from pdf_report import gerar_pdf
@@ -38,20 +38,36 @@ if not inspecoes:
     st.info("Nenhuma inspeção registrada ainda.")
     st.stop()
 
-insp_opts = {
-    f"[{i['status'].upper()}] {i['propriedade']} — Q.{i['numero_quadra']} ({i['variedade']}) | {i['data_inspecao']}": i['id']
-    for i in inspecoes
-}
+# Nº de plantas marcadas por inspeção (para o usuário identificar a certa)
+_marcadas = {}
+insp_opts = {}
+for i in inspecoes:
+    _maxp, cnt = get_plantas_inspecionadas(i['id'])
+    _marcadas[i['id']] = cnt
+    aviso = "  ⚠️ SEM PLANTAS" if cnt == 0 else f"  ✓ {cnt} plantas"
+    label = (f"{i['propriedade']} — Q.{i['numero_quadra']} ({i['variedade']}) | "
+             f"{i['data_inspecao']}{aviso}")
+    insp_opts[label] = i['id']
 
-# Pre-selecionar inspeção ativa da sessão
+# Pré-selecionar a inspeção ativa da sessão; senão, a 1ª que tenha dados
 default_idx = 0
-if 'inspecao_id' in st.session_state and st.session_state.inspecao_id:
-    ids_list = list(insp_opts.values())
-    if st.session_state.inspecao_id in ids_list:
-        default_idx = ids_list.index(st.session_state.inspecao_id)
+ids_list = list(insp_opts.values())
+if 'inspecao_id' in st.session_state and st.session_state.inspecao_id in ids_list:
+    default_idx = ids_list.index(st.session_state.inspecao_id)
+else:
+    for idx, iid in enumerate(ids_list):
+        if _marcadas.get(iid, 0) > 0:
+            default_idx = idx
+            break
 
 insp_sel = st.selectbox("Selecionar Inspeção", list(insp_opts.keys()), index=default_idx)
 inspecao_id = insp_opts[insp_sel]
+
+# Aviso se a inspeção selecionada não tem plantas marcadas
+if _marcadas.get(inspecao_id, 0) == 0:
+    st.warning("⚠️ Esta inspeção **não tem nenhuma planta marcada**. "
+               "Se você marcou plantas, verifique se não há **outra inspeção da mesma quadra** "
+               "na lista acima (as com ✓ têm dados), ou volte ao **Campo** e clique em **Salvar**.")
 
 # Clear cached PDF when inspection changes
 if st.session_state.get('_pdf_inspecao_id') != inspecao_id:

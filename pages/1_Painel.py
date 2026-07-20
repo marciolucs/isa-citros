@@ -2,7 +2,8 @@ import streamlit as st
 from datetime import date, timedelta
 from database import (
     init_db, get_clientes, get_quadras_by_cliente,
-    create_inspecao, add_cliente, add_quadra
+    create_inspecao, add_cliente, add_quadra,
+    find_inspecao, update_inspecao_meta
 )
 from seed_data import seed
 import ui
@@ -83,24 +84,41 @@ with tab_nova:
 
     st.divider()
 
-    if st.button("✅ Iniciar Inspeção", use_container_width=True, type="primary"):
+    # Aviso: já existe inspeção desta quadra nesta data?
+    existente = find_inspecao(cliente_id, quadra_id, str(data_insp))
+    if existente:
+        st.markdown(
+            '<div class="info-box">ℹ️ Já existe uma inspeção desta <b>quadra nesta data</b>. '
+            'Ao iniciar, você <b>continua a mesma</b> (mantendo as plantas já marcadas) — '
+            'não é criada uma inspeção duplicada.</div>',
+            unsafe_allow_html=True)
+
+    if st.button("✅ Iniciar / Continuar Inspeção", use_container_width=True, type="primary"):
         if not inspetor.strip():
             st.error("Informe o nome do inspetor.")
         else:
-            inspecao_id = create_inspecao(
-                cliente_id=cliente_id,
-                quadra_id=quadra_id,
-                numero_inspecao=num_insp,
-                inspetor=inspetor,
-                data_inspecao=str(data_insp),
-                proxima_inspecao=str(prox_insp),
-                inicio_inspecao=inicio_insp,
-                direcao=direcao,
-            )
+            if existente:
+                # Reaproveita a inspeção existente (evita duplicar e perder dados)
+                update_inspecao_meta(existente, num_insp, inspetor,
+                                     str(prox_insp), inicio_insp, direcao)
+                inspecao_id = existente
+                msg = f"Continuando a inspeção desta quadra em {data_insp} (nº {inspecao_id}). Plantas já marcadas foram mantidas."
+            else:
+                inspecao_id = create_inspecao(
+                    cliente_id=cliente_id,
+                    quadra_id=quadra_id,
+                    numero_inspecao=num_insp,
+                    inspetor=inspetor,
+                    data_inspecao=str(data_insp),
+                    proxima_inspecao=str(prox_insp),
+                    inicio_inspecao=inicio_insp,
+                    direcao=direcao,
+                )
+                msg = f"Inspeção criada (nº {inspecao_id})."
             st.session_state.inspecao_id = inspecao_id
             st.session_state.planta_atual = 1
             st.session_state.total_plantas = quadra['total_plantas']
-            st.success(f"Inspeção criada (ID: {inspecao_id}). Redirecionando para o Campo...")
+            st.session_state['flash_campo'] = msg
             st.switch_page("pages/2_Campo.py")
 
 # ── Tab: Cadastrar Propriedade/Quadra ─────────────────────────────────────────

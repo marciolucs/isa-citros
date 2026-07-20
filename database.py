@@ -245,6 +245,30 @@ def create_inspecao(cliente_id, quadra_id, numero_inspecao, inspetor,
         return cursor.lastrowid
 
 
+def find_inspecao(cliente_id, quadra_id, data_inspecao):
+    """Procura inspeção existente da mesma quadra na mesma data (evita duplicar)."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT id FROM inspecoes
+               WHERE cliente_id=? AND quadra_id=? AND data_inspecao=?
+               ORDER BY id DESC LIMIT 1""",
+            (cliente_id, quadra_id, data_inspecao)
+        ).fetchone()
+        return row['id'] if row else None
+
+
+def update_inspecao_meta(inspecao_id, numero_inspecao, inspetor,
+                         proxima_inspecao, inicio_inspecao, direcao):
+    """Atualiza os metadados de uma inspeção existente e reabre (em_andamento)."""
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE inspecoes SET numero_inspecao=?, inspetor=?, proxima_inspecao=?,
+                   inicio_inspecao=?, direcao=?, status='em_andamento'
+               WHERE id=?""",
+            (numero_inspecao, inspetor, proxima_inspecao, inicio_inspecao, direcao, inspecao_id)
+        )
+
+
 def get_inspecao_by_id(inspecao_id):
     with get_db() as conn:
         row = conn.execute(
