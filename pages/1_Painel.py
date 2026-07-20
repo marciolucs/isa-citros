@@ -5,35 +5,17 @@ from database import (
     create_inspecao, add_cliente, add_quadra
 )
 from seed_data import seed
+import ui
 
 st.set_page_config(page_title="Painel — ISA", page_icon="⚙️", layout="wide",
                    initial_sidebar_state="collapsed")
 init_db()
 seed()
+ui.inject_theme()
+ui.top_nav("painel")
 
-st.markdown("""
-<style>
-div[data-testid="stButton"] > button { min-height:48px; font-size:15px; border-radius:8px; font-weight:600; }
-.header-box { background:linear-gradient(135deg,#1A5C2A,#2D7D46); color:white;
-              padding:1rem 1.5rem; border-radius:12px; margin-bottom:1.5rem; }
-.header-box h2 { color:white; margin:0; }
-.header-box p  { color:#C8E6C9; margin:0.2rem 0 0; font-size:0.85rem; }
-.info-box { background:#E8F5E9; border-left:4px solid #2D7D46; padding:0.8rem 1rem;
-            border-radius:0 8px 8px 0; margin:0.5rem 0; }
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<div class="header-box">
-    <h2>⚙️ Painel de Configuração da Inspeção</h2>
-    <p>Selecione a propriedade e configure os parâmetros antes de ir ao campo</p>
-</div>
-""", unsafe_allow_html=True)
-
-if st.button("← Voltar ao Início", key="btn_home"):
-    st.switch_page("app.py")
-
-st.divider()
+ui.page_header("⚙️", "Painel de Configuração da Inspeção",
+               "Selecione a propriedade e configure os parâmetros antes de ir ao campo")
 
 # ── Formulário principal ───────────────────────────────────────────────────────
 tab_nova, tab_cadastro = st.tabs(["📋 Nova Inspeção", "➕ Cadastrar Propriedade/Quadra"])

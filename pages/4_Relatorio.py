@@ -8,48 +8,27 @@ from database import (
 from calculations import get_relatorio_pragas, consolidar_quarentenaria, plantas_inspecionadas
 from pdf_report import gerar_pdf
 from seed_data import seed
+import ui
 
 st.set_page_config(page_title="Relatório — ISA", page_icon="📊", layout="wide",
                    initial_sidebar_state="collapsed")
 init_db()
 seed()
+ui.inject_theme()
+ui.top_nav("relatorio")
 
+# CSS específico: cartões de métrica do relatório
 st.markdown("""
 <style>
-div[data-testid="stButton"] > button { min-height:46px; font-size:14px; border-radius:8px; font-weight:600; }
-.header-box { background:linear-gradient(135deg,#0D47A1,#1565C0); color:white;
-              padding:0.8rem 1.5rem; border-radius:12px; margin-bottom:1rem; }
-.header-box h2 { color:white; margin:0; }
-.header-box p  { color:#BBDEFB; margin:0.2rem 0 0; font-size:0.82rem; }
 .metric-card { background:white; border-radius:10px; padding:1rem; text-align:center;
-               border:2px solid #E3F2FD; }
-.metric-value { font-size:2rem; font-weight:700; color:#0D47A1; }
+               border:2px solid #E8F5E9; }
+.metric-value { font-size:2rem; font-weight:700; color:#1B5E20; }
 .metric-label { font-size:0.8rem; color:#666; }
-.secao-titulo { font-size:1.1rem; font-weight:700; color:#0D47A1; margin:1rem 0 0.5rem; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Seleção da inspeção ────────────────────────────────────────────────────────
-st.markdown("""
-<div class="header-box">
-    <h2>📊 Relatório de Inspeção Fitossanitária</h2>
-    <p>Visualize resultados, estatísticas e gere o PDF para envio ao produtor</p>
-</div>
-""", unsafe_allow_html=True)
-
-col_nav1, col_nav2, col_nav3, col_nav4 = st.columns(4)
-with col_nav1:
-    if st.button("← Voltar ao Campo", use_container_width=True):
-        st.switch_page("pages/2_Campo.py")
-with col_nav2:
-    if st.button("🦠 Quarentenárias", use_container_width=True):
-        st.switch_page("pages/3_Quarentenarias.py")
-with col_nav3:
-    if st.button("🗂️ Consolidado", use_container_width=True):
-        st.switch_page("pages/5_Consolidado.py")
-with col_nav4:
-    if st.button("← Início", use_container_width=True):
-        st.switch_page("app.py")
+ui.page_header("📊", "Relatório de Inspeção Fitossanitária",
+               "Visualize resultados, estatísticas e gere o PDF para envio ao produtor")
 
 st.divider()
 

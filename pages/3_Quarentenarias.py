@@ -8,6 +8,7 @@ from database import (
 from calculations import consolidar_quarentenaria
 from pdf_report import gerar_pdf_ficha_quarentenaria
 from seed_data import seed
+import ui
 
 st.set_page_config(
     page_title="Fichas Quarentenárias — ISA",
@@ -17,41 +18,25 @@ st.set_page_config(
 )
 init_db()
 seed()
+ui.inject_theme()
+ui.top_nav("quarentenarias")
 
+# CSS específico das fichas quarentenárias
 st.markdown("""
 <style>
-div[data-testid="stButton"] > button {
-    min-height: 44px; font-size: 14px; border-radius: 8px; font-weight: 600;
-}
-.header-box {
-    background: linear-gradient(135deg, #1B5E20, #2E7D32);
-    color: white; padding: 0.8rem 1.5rem; border-radius: 12px; margin-bottom: 1rem;
-}
-.header-box h2 { color: white; margin: 0; }
-.header-box p  { color: #C8E6C9; margin: 0.2rem 0 0; font-size: 0.82rem; }
-.insp-meta {
-    background: #F9FBE7; border: 1px solid #C5E1A5;
-    border-radius: 10px; padding: 0.7rem 1.2rem; margin-bottom: 0.8rem;
-}
-.insp-meta table { width: 100%; border-collapse: collapse; }
-.insp-meta td { padding: 3px 10px; font-size: 0.87rem; }
-.insp-meta .lbl { font-weight: 700; color: #33691E; width: 130px; }
-.insp-meta .val { color: #1a1a1a; }
-.m-card {
-    background: white; border: 2px solid #E8F5E9; border-radius: 8px;
-    padding: 0.55rem 0.4rem; text-align: center;
-}
-.m-val  { font-size: 1.5rem; font-weight: 700; color: #1B5E20; line-height: 1.1; }
-.m-lab  { font-size: 0.72rem; color: #666; margin-top: 2px; }
+.insp-meta { background:#F9FBE7; border:1px solid #C5E1A5; border-radius:10px;
+             padding:0.7rem 1.2rem; margin-bottom:0.8rem; }
+.insp-meta table { width:100%; border-collapse:collapse; }
+.insp-meta td { padding:3px 10px; font-size:0.87rem; }
+.insp-meta .lbl { font-weight:700; color:#33691E; width:130px; }
+.insp-meta .val { color:#1a1a1a; }
 .alerta { background:#FFEBEE; border:2px solid #C62828; border-radius:8px;
           padding:0.7rem 1rem; color:#B71C1C; font-weight:700; margin:0.3rem 0; }
 .ok     { background:#E8F5E9; border:2px solid #2E7D32; border-radius:8px;
           padding:0.7rem 1rem; color:#1B5E20; font-weight:700; margin:0.3rem 0; }
-.ficha-titulo {
-    font-size: 1rem; font-weight: 700; color: #1B5E20;
-    background: #F1F8E9; border-left: 4px solid #2E7D32;
-    padding: 0.4rem 0.8rem; border-radius: 0 6px 6px 0; margin-bottom: 0.4rem;
-}
+.ficha-titulo { font-size:1rem; font-weight:700; color:#1B5E20; background:#F1F8E9;
+                border-left:4px solid #2E7D32; padding:0.4rem 0.8rem;
+                border-radius:0 6px 6px 0; margin-bottom:0.4rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -69,24 +54,11 @@ if not inspecao:
     st.stop()
 
 # ── Cabeçalho ─────────────────────────────────────────────────────────────────
-st.markdown(f"""
-<div class="header-box">
-    <h2>🦠 Ficha de Inspeção de Doenças Quarentenárias</h2>
-    <p>{inspecao['propriedade']} — Quadra {inspecao['numero_quadra']} &nbsp;|&nbsp;
-       {inspecao['variedade']} &nbsp;|&nbsp; {inspecao['data_inspecao']}</p>
-</div>
-""", unsafe_allow_html=True)
-
-col_n1, col_n2, col_n3 = st.columns(3)
-with col_n1:
-    if st.button("← Voltar ao Campo", use_container_width=True):
-        st.switch_page("pages/2_Campo.py")
-with col_n2:
-    if st.button("📊 Ver Relatório", use_container_width=True):
-        st.switch_page("pages/4_Relatorio.py")
-with col_n3:
-    if st.button("← Início", use_container_width=True):
-        st.switch_page("app.py")
+ui.page_header(
+    "🦠", "Ficha de Doenças Quarentenárias",
+    f"{inspecao['propriedade']} — Quadra {inspecao['numero_quadra']} | "
+    f"{inspecao['variedade']} | {inspecao['data_inspecao']}"
+)
 
 st.divider()
 

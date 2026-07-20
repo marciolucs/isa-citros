@@ -1,6 +1,7 @@
 import streamlit as st
 from database import init_db
 from seed_data import seed
+import ui
 
 st.set_page_config(
     page_title="ISA — Inspeção Fitossanitária Citros",
@@ -12,72 +13,14 @@ st.set_page_config(
 # ── Inicialização ─────────────────────────────────────────────────────────────
 init_db()
 seed()
-
-# ── CSS global (mobile-first) ─────────────────────────────────────────────────
-st.markdown("""
-<style>
-/* Botões maiores para touch */
-div[data-testid="stButton"] > button {
-    min-height: 48px !important;
-    font-size: 15px !important;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-}
-/* Checkboxes maiores */
-div[data-testid="stCheckbox"] label p {
-    font-size: 15px !important;
-}
-div[data-testid="stCheckbox"] label {
-    min-height: 40px;
-    align-items: center;
-}
-/* Remove padding excessivo em mobile */
-@media (max-width: 768px) {
-    .block-container {
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
-        padding-top: 1rem !important;
-    }
-}
-/* Cabeçalho verde */
-.header-box {
-    background: linear-gradient(135deg, #1A5C2A 0%, #2D7D46 100%);
-    color: white;
-    padding: 1.2rem 1.5rem;
-    border-radius: 12px;
-    margin-bottom: 1.5rem;
-}
-.header-box h1 { color: white; margin: 0; font-size: 1.6rem; }
-.header-box p  { color: #C8E6C9; margin: 0.3rem 0 0; font-size: 0.9rem; }
-/* Cards de módulo */
-.modulo-card {
-    background: white;
-    border: 2px solid #E8F5E9;
-    border-radius: 12px;
-    padding: 1.2rem;
-    margin-bottom: 1rem;
-    text-align: center;
-    cursor: pointer;
-    transition: border-color 0.2s;
-}
-.modulo-card:hover { border-color: #2D7D46; }
-.modulo-icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
-.modulo-title { font-weight: 700; color: #1A5C2A; font-size: 1rem; }
-.modulo-desc  { color: #666; font-size: 0.82rem; margin-top: 0.3rem; }
-/* Badge de status */
-.badge-verde  { background:#E8F5E9; color:#1B5E20; padding:3px 10px; border-radius:20px; font-size:0.8rem; font-weight:600; }
-.badge-amarelo{ background:#FFF9C4; color:#F57F17; padding:3px 10px; border-radius:20px; font-size:0.8rem; font-weight:600; }
-.badge-vermelho{ background:#FFEBEE; color:#B71C1C; padding:3px 10px; border-radius:20px; font-size:0.8rem; font-weight:600; }
-</style>
-""", unsafe_allow_html=True)
+ui.inject_theme()
+ui.top_nav("inicio")
 
 # ── Cabeçalho ─────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="header-box">
-    <h1>🍊 ISA — Sistema de Inspeção Fitossanitária</h1>
-    <p>Citros | Luciano Costella — Téc. Agropecuária CFTA 17893896825 | Consultoria desde 2005</p>
-</div>
-""", unsafe_allow_html=True)
+ui.page_header(
+    "🍊", "Sistema de Inspeção Fitossanitária",
+    "Citros | Luciano Costella — Téc. Agropecuária CFTA 17893896825 | Consultoria desde 2005"
+)
 
 # ── Módulos — layout 2×2 (mobile-friendly) ────────────────────────────────────
 row1_col1, row1_col2 = st.columns(2)

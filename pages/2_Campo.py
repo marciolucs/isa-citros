@@ -11,6 +11,7 @@ from database import (
 from calculations import calcular_incidencia
 from pdf_report import gerar_pdf_ficha_campo
 from seed_data import seed
+import ui
 
 st.set_page_config(
     page_title="Ficha de Campo — ISA",
@@ -20,64 +21,30 @@ st.set_page_config(
 )
 init_db()
 seed()
+ui.inject_theme()
+ui.top_nav("campo")
 
+# CSS específico da ficha (cabeçalho estilo Excel + cores das seções)
 st.markdown("""
 <style>
-div[data-testid="stButton"] > button { min-height:44px; font-size:14px; border-radius:6px; font-weight:600; }
-
-/* ── Cabeçalho da ficha (igual ao Excel) ── */
-.fh-box {
-    border: 2px solid #555; border-radius: 4px;
-    background: #FFFDE7; margin-bottom: 0.6rem;
-    overflow: hidden;
-}
+.fh-box { border: 2px solid #555; border-radius: 4px; background: #FFFDE7;
+          margin-bottom: 0.6rem; overflow: hidden; }
 .fh-box table { width: 100%; border-collapse: collapse; }
-.fh-box td {
-    padding: 4px 10px; font-size: 0.82rem;
-    border: 1px solid #CCC;
-}
-.fh-lbl { font-weight: 700; color: #1A237E; }
+.fh-box td { padding: 4px 10px; font-size: 0.82rem; border: 1px solid #CCC; }
+.fh-lbl { font-weight: 700; color: #1B5E20; }
 .fh-val { color: #1a1a1a; }
 .fh-red { color: #B71C1C; font-weight: 700; }
 .fh-quote { font-style: italic; color: #6A1B9A; text-align: center; }
 .fh-prox { text-align: right; }
-.fh-prox-label { font-weight: 700; color: #1A237E; font-size: 0.8rem; }
+.fh-prox-label { font-weight: 700; color: #1B5E20; font-size: 0.8rem; }
 .fh-prox-val { color: #B71C1C; font-weight: 700; font-size: 1.05rem; }
-
-/* ── Alertas ── */
-.alerta-psil {
-    background: #FFEBEE; border: 2px solid #C62828;
-    border-radius: 8px; padding: 0.6rem 1rem; margin: 0.4rem 0;
-    font-weight: 700; color: #B71C1C; font-size: 0.95rem;
-}
-
-/* ── Seções do grid ── */
-.secao-titulo {
-    font-size: 1rem; font-weight: 700; color: #1A237E;
-    border-left: 4px solid #1976D2; padding-left: 8px;
-    margin: 0.8rem 0 0.3rem;
-}
-.secao-ferrugem {
-    border-left-color: #C62828; color: #B71C1C;
-}
-.secao-leprose {
-    border-left-color: #E65100; color: #BF360C;
-}
-.secao-pragas {
-    border-left-color: #4527A0; color: #311B92;
-}
-.secao-inimigos {
-    border-left-color: #1B5E20; color: #1B5E20;
-}
-
-/* ── Info box ── */
-.info-box {
-    background: #F8F9FA; border: 1px solid #DEE2E6;
-    border-radius: 6px; padding: 0.5rem 0.8rem;
-    font-size: 0.82rem; color: #495057; margin-bottom: 0.5rem;
-}
-.limiar-ok  { color: #1B5E20; font-weight: 600; }
-.limiar-alerta { color: #B71C1C; font-weight: 700; }
+.alerta-psil { background:#FFEBEE; border:2px solid #C62828; border-radius:8px;
+               padding:0.6rem 1rem; margin:0.4rem 0; font-weight:700;
+               color:#B71C1C; font-size:0.95rem; }
+.secao-ferrugem { border-left-color:#C62828 !important; color:#B71C1C !important; }
+.secao-leprose  { border-left-color:#E65100 !important; color:#BF360C !important; }
+.secao-pragas   { border-left-color:#4527A0 !important; color:#311B92 !important; }
+.secao-inimigos { border-left-color:#1B5E20 !important; color:#1B5E20 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -123,18 +90,6 @@ for d in summary.values():
     all_plants_reg |= d['plantas']
 n_inspecionadas = max(all_plants_reg) if all_plants_reg else 0
 total_insp = n_inspecionadas if n_inspecionadas > 0 else total_plantas
-
-# ── Navegação ─────────────────────────────────────────────────────────────────
-nav1, nav2, nav3 = st.columns([2, 2, 2])
-with nav1:
-    if st.button("← Início", use_container_width=True):
-        st.switch_page("app.py")
-with nav2:
-    if st.button("🦠 Quarentenárias", use_container_width=True):
-        st.switch_page("pages/3_Quarentenarias.py")
-with nav3:
-    if st.button("📊 Ver Relatório", use_container_width=True):
-        st.switch_page("pages/4_Relatorio.py")
 
 # ── Cabeçalho da ficha (replica visual do Excel) ──────────────────────────────
 st.markdown(f"""

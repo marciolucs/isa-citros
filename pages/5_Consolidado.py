@@ -4,50 +4,28 @@ from database import init_db, get_clientes, get_cliente_by_id
 from calculations import consolidar_propriedade
 from pdf_report import gerar_pdf_consolidado
 from seed_data import seed
+import ui
 
 st.set_page_config(page_title="Consolidado — ISA", page_icon="🗂️", layout="wide",
                    initial_sidebar_state="collapsed")
 init_db()
 seed()
+ui.inject_theme()
+ui.top_nav("consolidado")
 
+# CSS específico: bloco do técnico/propriedade
 st.markdown("""
 <style>
-div[data-testid="stButton"] > button { min-height:46px; font-size:14px; border-radius:8px; font-weight:600; }
-.header-box { background:linear-gradient(135deg,#4527A0,#5E35B1); color:white;
-              padding:0.8rem 1.5rem; border-radius:12px; margin-bottom:1rem; }
-.header-box h2 { color:white; margin:0; }
-.header-box p  { color:#D1C4E9; margin:0.2rem 0 0; font-size:0.82rem; }
-.tecnico-box { background:#F3E5F5; border:1px solid #CE93D8; border-radius:10px;
+.tecnico-box { background:#F1F8E9; border:1px solid #C5E1A5; border-radius:10px;
                padding:0.7rem 1.2rem; margin-bottom:0.8rem; }
 .tecnico-box table { width:100%; border-collapse:collapse; }
 .tecnico-box td { padding:3px 10px; font-size:0.85rem; }
-.tecnico-box .lbl { font-weight:700; color:#4527A0; width:120px; }
-.secao-titulo { font-size:1.05rem; font-weight:700; color:#4527A0; margin:0.8rem 0 0.4rem; }
-.m-card { background:white; border:2px solid #EDE7F6; border-radius:8px;
-          padding:0.55rem 0.4rem; text-align:center; }
-.m-val  { font-size:1.5rem; font-weight:700; color:#4527A0; line-height:1.1; }
-.m-lab  { font-size:0.72rem; color:#666; margin-top:2px; }
+.tecnico-box .lbl { font-weight:700; color:#1B5E20; width:120px; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("""
-<div class="header-box">
-    <h2>🗂️ Relatório Consolidado por Propriedade</h2>
-    <p>Todas as quadras numa tabela só — o % de cada praga por quadra (espelho da aba CONTROLE)</p>
-</div>
-""", unsafe_allow_html=True)
-
-# ── Navegação ─────────────────────────────────────────────────────────────────
-n1, n2, n3 = st.columns(3)
-with n1:
-    if st.button("← Início", use_container_width=True):
-        st.switch_page("app.py")
-with n2:
-    if st.button("📊 Relatório (quadra)", use_container_width=True):
-        st.switch_page("pages/4_Relatorio.py")
-with n3:
-    if st.button("⚙️ Painel", use_container_width=True):
-        st.switch_page("pages/1_Painel.py")
+ui.page_header("🗂️", "Relatório Consolidado por Propriedade",
+               "Todas as quadras numa tabela só — o % de cada praga por quadra (espelho da aba CONTROLE)")
 
 st.divider()
 
