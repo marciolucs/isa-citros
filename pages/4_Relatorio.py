@@ -3,9 +3,9 @@ import pandas as pd
 import plotly.express as px
 from database import (
     init_db, get_inspecao_by_id, get_inspecoes_recentes,
-    get_observacoes_inspecao, finalize_inspecao, get_total_inspecionado
+    get_observacoes_inspecao, finalize_inspecao
 )
-from calculations import get_relatorio_pragas, consolidar_quarentenaria
+from calculations import get_relatorio_pragas, consolidar_quarentenaria, plantas_inspecionadas
 from pdf_report import gerar_pdf
 from seed_data import seed
 
@@ -37,7 +37,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-col_nav1, col_nav2, col_nav3 = st.columns([2, 2, 2])
+col_nav1, col_nav2, col_nav3, col_nav4 = st.columns(4)
 with col_nav1:
     if st.button("← Voltar ao Campo", use_container_width=True):
         st.switch_page("pages/2_Campo.py")
@@ -45,6 +45,9 @@ with col_nav2:
     if st.button("🦠 Quarentenárias", use_container_width=True):
         st.switch_page("pages/3_Quarentenarias.py")
 with col_nav3:
+    if st.button("🗂️ Consolidado", use_container_width=True):
+        st.switch_page("pages/5_Consolidado.py")
+with col_nav4:
     if st.button("← Início", use_container_width=True):
         st.switch_page("app.py")
 
@@ -83,9 +86,7 @@ if not inspecao:
 
 st.session_state.inspecao_id = inspecao_id
 total_plantas = inspecao['total_plantas']
-total_inspecionado = get_total_inspecionado(inspecao_id)
-if total_inspecionado == 0:
-    total_inspecionado = total_plantas
+total_inspecionado = plantas_inspecionadas(inspecao_id, total_plantas)
 
 # ── Cabeçalho da propriedade ───────────────────────────────────────────────────
 with st.container():

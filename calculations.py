@@ -1,10 +1,83 @@
-from database import get_inspecao_summary, get_fichas_by_inspecao, get_ruas_by_ficha
+from database import (
+    get_inspecao_summary, get_fichas_by_inspecao, get_ruas_by_ficha,
+    get_inspecoes_by_cliente, get_plantas_inspecionadas,
+)
+
+
+def plantas_inspecionadas(inspecao_id: int, total_plantas: int) -> int:
+    """Denominador único de % em todo o sistema: nº de plantas inspecionadas =
+    maior número de planta registrado na ficha (fallback: total da quadra).
+    Mantém Campo, Relatório e Consolidado com os mesmos percentuais."""
+    maxp, _cnt = get_plantas_inspecionadas(inspecao_id)
+    return maxp or total_plantas
 
 
 def calcular_incidencia(plantas_com_praga: int, total_inspecionado: int) -> float:
     if total_inspecionado == 0:
         return 0.0
     return round((plantas_com_praga / total_inspecionado) * 100, 2)
+
+
+# ── Colunas do relatório consolidado (mesma ordem/agrupamento da aba CONTROLE) ──
+# (rótulo, [nomes de praga que compõem a coluna], limiar em fração)
+CONSOLIDADO_COLS = [
+    ("Ferrugem <10",  ["Ácaro Ferrugem (< 10 ácaros)"],                       0.10),
+    ("Ferrugem 10+",  ["Ácaro Ferrugem (10 ou + ácaros)"],                    0.05),
+    ("Leprose",       ["Ácaro Leprose"],                                       0.01),
+    ("Ác. Branco",    ["Ácaro Branco"],                                        0.05),
+    ("Mosca",         ["Mosca das Frutas"],                                    0.05),
+    ("Furão",         ["Bicho Furão"],                                         0.05),
+    ("Ác. P/M/T",     ["Ácaro Purpúreo", "Ácaro Mexicano", "Ácaro Texano"],   0.10),
+    ("Pulgão",        ["Pulgão Verde", "Pulgão Preto"],                        0.10),
+    ("Lagarta",       ["Lagarta"],                                             0.05),
+    ("Minadora",      ["Minadora das Folhas"],                                 0.10),
+    ("Tripes",        ["Tripes"],                                              0.10),
+    ("Psilídeo",      ["Psilídeo"],                                            0.01),
+    ("Inimigos Nat.", ["Inimigos Naturais"],                                   0.00),
+]
+
+
+def consolidar_propriedade(cliente_id: int) -> list[dict]:
+    """Consolida todas as inspeções de uma propriedade em linhas (uma por
+    inspeção/quadra), com o % de cada grupo de pragas — espelho da aba CONTROLE.
+
+    Para colunas com várias pragas (ex.: Ác. P/M/T, Pulgão), usa a UNIÃO das
+    plantas afetadas: uma planta com qualquer das pragas do grupo conta uma vez.
+    """
+    inspecoes = get_inspecoes_by_cliente(cliente_id)
+    linhas = []
+    for insp in inspecoes:
+        summary = get_inspecao_summary(insp['id'])
+        total = plantas_inspecionadas(insp['id'], insp['total_plantas'])
+        # nome da praga -> conjunto de plantas afetadas
+        nome_plantas = {d['nome']: d['plantas'] for d in summary.values()}
+
+        cols = []
+        for rotulo, nomes, limiar in CONSOLIDADO_COLS:
+            union = set()
+            for pn in nomes:
+                union |= nome_plantas.get(pn, set())
+            inc = calcular_incidencia(len(union), total)
+            lim_pct = round(limiar * 100, 2)
+            cols.append({
+                'rotulo': rotulo,
+                'valor': inc,
+                'limiar': lim_pct,
+                'acima': lim_pct > 0 and inc >= lim_pct,
+            })
+
+        linhas.append({
+            'inspecao_id': insp['id'],
+            'quadra': insp['numero_quadra'],
+            'variedade': insp['variedade'],
+            'data': insp['data_inspecao'],
+            'numero_inspecao': insp.get('numero_inspecao', ''),
+            'total_inspecionado': total,
+            'total_plantas': insp['total_plantas'],
+            'cols': cols,
+            'tem_alerta': any(c['acima'] for c in cols),
+        })
+    return linhas
 
 
 def get_relatorio_pragas(inspecao_id: int, total_inspecionado: int) -> list[dict]:

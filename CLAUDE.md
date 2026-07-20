@@ -13,12 +13,13 @@
 app.py              # Página inicial: menu 2×2 + inspeções recentes
 pages/
   1_Painel.py       # Configura nova inspeção (cliente, quadra, datas, inspetor)
-  2_Campo.py        # Ficha de campo: grade pragas × plantas (estilo Excel)
+  2_Campo.py        # Ficha de campo: grade pragas × plantas (estilo Excel), 2 modos
   3_Quarentenarias.py # Fichas Greening e Cancro Cítrico (26 ruas, PDF)
-  4_Relatorio.py    # Relatório final em PDF com incidências e observações
+  4_Relatorio.py    # Relatório final por quadra em PDF com incidências e observações
+  5_Consolidado.py  # Relatório consolidado por propriedade (espelho da aba CONTROLE)
 database.py         # SQLite — init_db(), funções CRUD, migrations automáticas
-calculations.py     # calcular_incidencia(), get_relatorio_pragas(), consolidar_quarentenaria()
-pdf_report.py       # gerar_pdf() e gerar_pdf_ficha_quarentenaria() via ReportLab
+calculations.py     # calcular_incidencia(), plantas_inspecionadas(), get_relatorio_pragas(), consolidar_quarentenaria(), consolidar_propriedade()
+pdf_report.py       # gerar_pdf(), gerar_pdf_ficha_campo(), gerar_pdf_ficha_quarentenaria(), gerar_pdf_consolidado()
 seed_data.py        # PRAGAS, OBSERVACOES, CLIENTES_QUADRAS — seed() idempotente
 requirements.txt    # streamlit, pandas, reportlab, plotly, pillow
 ```
@@ -90,11 +91,25 @@ Grade inspirada na aba `Citros ` do `ISAeGUI.xlsm`. Estrutura:
 | 🐛 PRAGAS DIVERSAS | Branco, Mosca, Bicho Furão, Purpúreo, Mexicano, Texano, Pulgão Verde, Pulgão Preto, Lagarta, Minadora das Folhas, Tripes, Psilídeo |
 | 🌿 INIMIGOS NATURAIS | "Inimigos Naturais" |
 
-- Uma `st.data_editor` por seção, key única `grid_{safe_key}`
-- Colunas: `Praga/Doença` (disabled), `Parte` (disabled), `%` (disabled), `Limiar %` (disabled), `p1..pN` (CheckboxColumn)
-- `%` calculado via `calcular_incidencia(len(plantas_pest), total_insp)`
-- Salva com `save_praga_plantas()` — substitui tudo por seção
-- Abaixo: Índice de Avaliação (observações por grupo), fotos, botões finais
+**Dois modos** (radio no topo, key `modo_campo`), editam os mesmos dados (`inspecao_pragas`):
+- 📱 **Modo Planta**: escolhe a planta (`num_planta_campo`) e marca pragas por seção; salva com `save_planta_pragas()`. Avanço via `st.session_state['planta_goto']` aplicado no topo antes do widget.
+- 📊 **Modo Grade**: uma `st.data_editor` por seção (key `grid_{safe_key}`), colunas `p1..pN` (CheckboxColumn); salva com `save_praga_plantas()`.
+
+Outros: botão PDF (`gerar_pdf_ficha_campo`), Índice de Avaliação (observações por grupo — deduplicadas por `_obs_shown` para não repetir key), fotos.
+
+## Denominador de % (IMPORTANTE — fonte única)
+
+`calculations.plantas_inspecionadas(inspecao_id, total_plantas)` = **maior número de planta registrado** (fallback: total da quadra). Usado em Campo, Relatório (4), Consolidado (5) e nos PDFs — todos mostram o MESMO %. Não usar `get_total_inspecionado` (conta só plantas com praga, infla o %).
+
+---
+
+## Relatório Consolidado (5_Consolidado.py) — espelho da aba CONTROLE
+
+- Usuário escolhe a **propriedade**; `consolidar_propriedade(cliente_id)` gera 1 linha por inspeção/quadra.
+- Colunas de praga em `CONSOLIDADO_COLS` (calculations.py) na ordem do Excel. Colunas com várias pragas (Ác. P/M/T, Pulgão) = **união** das plantas afetadas.
+- Tabela `st.dataframe` com Styler: célula vermelha quando `% ≥ limiar`.
+- PDF paisagem `gerar_pdf_consolidado(cliente, linhas)`.
+- Evitar glifos fora da Helvetica no PDF (ex.: usar "10+" em vez de "≥10").
 
 ---
 

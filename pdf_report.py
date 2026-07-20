@@ -8,9 +8,12 @@ from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image
 )
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
-from calculations import get_relatorio_pragas, consolidar_quarentenaria, calcular_incidencia
+from calculations import (
+    get_relatorio_pragas, consolidar_quarentenaria, calcular_incidencia,
+    plantas_inspecionadas,
+)
 from database import (
-    get_observacoes_inspecao, get_fotos_by_inspecao, get_total_inspecionado,
+    get_observacoes_inspecao, get_fotos_by_inspecao,
     get_pragas, get_inspecao_summary,
 )
 
@@ -73,9 +76,7 @@ def gerar_pdf(inspecao: dict) -> bytes:
 
     inspecao_id = inspecao['id']
     total_plantas = inspecao['total_plantas']
-    total_inspecionado = get_total_inspecionado(inspecao_id)
-    if total_inspecionado == 0:
-        total_inspecionado = total_plantas
+    total_inspecionado = plantas_inspecionadas(inspecao_id, total_plantas)
 
     # ── Cabeçalho ──────────────────────────────────────────────────────────────
     story.append(Paragraph(
@@ -845,6 +846,138 @@ def gerar_pdf_ficha_campo(inspecao: dict) -> bytes:
     t_ass = Table(ass, colWidths=[13.4*cm, 13.4*cm])
     t_ass.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),3), ('BOTTOMPADDING',(0,0),(-1,-1),3)]))
     story.append(t_ass)
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PDF do Relatório Consolidado — todas as quadras da propriedade (aba CONTROLE)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def gerar_pdf_consolidado(cliente: dict, linhas: list) -> bytes:
+    """Relatório consolidado por propriedade: uma linha por quadra, colunas com
+    o % de cada grupo de pragas. Replica a aba CONTROLE do ISAeGUI.xlsm."""
+
+    buffer = BytesIO()
+    BK, WH = colors.black, colors.white
+
+    S = {
+        'title': ParagraphStyle('cs_title', fontName='Helvetica-Bold', fontSize=13,
+                                 textColor=VERDE_ESCURO, alignment=TA_CENTER, spaceAfter=2),
+        'sub':   ParagraphStyle('cs_sub', fontName='Helvetica-Oblique', fontSize=8,
+                                 textColor=colors.HexColor("#6A1B9A"), alignment=TA_CENTER, spaceAfter=4),
+        'lbl':   ParagraphStyle('cs_lbl', fontName='Helvetica-Bold', fontSize=8, textColor=VERDE_ESCURO),
+        'val':   ParagraphStyle('cs_val', fontName='Helvetica-Bold', fontSize=8, textColor=colors.black),
+        'th':    ParagraphStyle('cs_th', fontName='Helvetica-Bold', fontSize=6.5,
+                                 textColor=WH, alignment=TA_CENTER, leading=7.5),
+        'lim':   ParagraphStyle('cs_lim', fontName='Helvetica-Oblique', fontSize=6,
+                                 textColor=colors.grey, alignment=TA_CENTER),
+        'cell':  ParagraphStyle('cs_cell', fontName='Helvetica', fontSize=7,
+                                 textColor=BK, alignment=TA_CENTER),
+        'cell_r':ParagraphStyle('cs_cellr', fontName='Helvetica-Bold', fontSize=7,
+                                 textColor=VERMELHO, alignment=TA_CENTER),
+        'quad':  ParagraphStyle('cs_quad', fontName='Helvetica-Bold', fontSize=7.5,
+                                 textColor=BK, alignment=TA_CENTER),
+        'var':   ParagraphStyle('cs_var', fontName='Helvetica', fontSize=6.5, textColor=BK),
+        'small': ParagraphStyle('cs_small', fontName='Helvetica', fontSize=7,
+                                textColor=colors.grey, alignment=TA_CENTER),
+    }
+
+    doc = SimpleDocTemplate(
+        buffer, pagesize=landscape(A4),
+        leftMargin=1.0*cm, rightMargin=1.0*cm, topMargin=1.0*cm, bottomMargin=1.0*cm,
+    )
+    story = []
+
+    story.append(Paragraph("RELATÓRIO CONSOLIDADO — INSPEÇÃO FITOSSANITÁRIA EM CITROS", S['title']))
+    story.append(Paragraph('"LUCIANO COSTELLA, CONSULTORIA EM CITROS DESDE 2005"', S['sub']))
+
+    # ── Cabeçalho ──────────────────────────────────────────────────────────────
+    tecnico = ("<b>Luciano Costella</b> — Técnico em Agropecuária CFTA 17893896825<br/>"
+               "(19) 99278-2525 — lucianocostella@yahoo.com.br")
+    prop = (f"<b>Produtor:</b> {cliente['proprietario']}<br/>"
+            f"<b>Propriedade:</b> {cliente['propriedade']}<br/>"
+            f"<b>Talhão:</b> {cliente['municipio']}-{cliente['estado']}")
+    t_cab = Table([[Paragraph(tecnico, S['val']), Paragraph(prop, S['val'])]],
+                  colWidths=[13.4*cm, 13.4*cm])
+    t_cab.setStyle(TableStyle([
+        ('BOX', (0,0),(-1,-1), 0.8, VERDE_MEDIO),
+        ('INNERGRID', (0,0),(-1,-1), 0.4, colors.HexColor("#C8E6C9")),
+        ('BACKGROUND', (0,0),(-1,-1), colors.HexColor("#F9FBE7")),
+        ('VALIGN', (0,0),(-1,-1),'MIDDLE'),
+        ('LEFTPADDING',(0,0),(-1,-1),6), ('TOPPADDING',(0,0),(-1,-1),3),
+        ('BOTTOMPADDING',(0,0),(-1,-1),3),
+    ]))
+    story.append(t_cab)
+    story.append(Spacer(1, 6))
+
+    if not linhas:
+        story.append(Paragraph("Nenhuma inspeção registrada para esta propriedade.", S['val']))
+        doc.build(story)
+        return buffer.getvalue()
+
+    # ── Tabela consolidada ─────────────────────────────────────────────────────
+    col_defs = linhas[0]['cols']          # rótulos e limiares (mesma ordem em todas as linhas)
+    n_pest = len(col_defs)
+
+    usable_w = landscape(A4)[0] - 2.0*cm
+    quad_w, var_w = 1.3*cm, 2.4*cm
+    pest_w = (usable_w - quad_w - var_w) / n_pest
+
+    # Cabeçalho
+    header = [Paragraph('Quadra', S['th']), Paragraph('Variedade', S['th'])]
+    header += [Paragraph(c['rotulo'], S['th']) for c in col_defs]
+    # Linha de limiares
+    lim_row = [Paragraph('Limiar', S['lim']), Paragraph('', S['lim'])]
+    lim_row += [Paragraph(f"{c['limiar']:.0f}%" if c['limiar'] > 0 else '—', S['lim'])
+                for c in col_defs]
+
+    data = [header, lim_row]
+    row_styles = [
+        ('BACKGROUND', (0,0),(-1,0), VERDE_MEDIO),
+        ('BACKGROUND', (0,1),(-1,1), colors.HexColor("#EEEEEE")),
+        ('GRID', (0,0),(-1,-1), 0.4, colors.HexColor("#BDBDBD")),
+        ('VALIGN', (0,0),(-1,-1),'MIDDLE'),
+        ('TOPPADDING',(0,0),(-1,-1),2), ('BOTTOMPADDING',(0,0),(-1,-1),2),
+        ('LEFTPADDING',(0,0),(-1,-1),2), ('RIGHTPADDING',(0,0),(-1,-1),2),
+    ]
+
+    r = 2
+    for linha in linhas:
+        cells = [
+            Paragraph(str(linha['quadra']), S['quad']),
+            Paragraph(str(linha['variedade']), S['var']),
+        ]
+        for j, c in enumerate(linha['cols']):
+            sty = S['cell_r'] if c['acima'] else S['cell']
+            txt = f"{c['valor']:.1f}" if c['valor'] > 0 else "-"
+            cells.append(Paragraph(txt, sty))
+            if c['acima']:
+                row_styles.append(('BACKGROUND', (2 + j, r), (2 + j, r), VERMELHO_CLARO))
+        data.append(cells)
+        # zebra
+        if r % 2 == 0:
+            row_styles.append(('BACKGROUND', (0, r), (1, r), colors.HexColor("#F5F5F5")))
+        r += 1
+
+    col_ws = [quad_w, var_w] + [pest_w] * n_pest
+    t = Table(data, colWidths=col_ws, repeatRows=2)
+    t.setStyle(TableStyle(row_styles))
+    story.append(t)
+    story.append(Spacer(1, 6))
+
+    # ── Legenda ────────────────────────────────────────────────────────────────
+    story.append(Paragraph(
+        "Valores em % de plantas com presença. Células em <font color='#C62828'><b>vermelho</b></font> "
+        "indicam praga acima do limiar de ação. Colunas com mais de uma praga (Ác. P/M/T, Pulgão) "
+        "consideram a união das plantas afetadas.", S['small']))
+    story.append(Spacer(1, 8))
+
+    # ── Rodapé ─────────────────────────────────────────────────────────────────
+    story.append(HRFlowable(width="100%", thickness=0.5, color=CINZA, spaceAfter=4))
+    story.append(Paragraph(
+        "Documento gerado pelo Sistema ISA — Gestão de Inspeção Fitossanitária de Citros", S['small']))
 
     doc.build(story)
     return buffer.getvalue()

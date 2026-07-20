@@ -127,6 +127,17 @@ with row2_col2:
     if st.button("Abrir Relatório", use_container_width=True, key="btn_rel"):
         st.switch_page("pages/4_Relatorio.py")
 
+# ── Módulo consolidado (largura total) ────────────────────────────────────────
+st.markdown("""
+<div class="modulo-card">
+    <div class="modulo-icon">🗂️</div>
+    <div class="modulo-title">Consolidado por Propriedade</div>
+    <div class="modulo-desc">Todas as quadras numa tabela só, com o % de cada praga — igual à aba CONTROLE do Excel</div>
+</div>
+""", unsafe_allow_html=True)
+if st.button("Abrir Consolidado", use_container_width=True, key="btn_consolidado"):
+    st.switch_page("pages/5_Consolidado.py")
+
 st.divider()
 
 # ── Inspeções recentes ─────────────────────────────────────────────────────────

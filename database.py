@@ -271,6 +271,22 @@ def get_inspecoes_recentes(limit=30):
         ).fetchall()]
 
 
+def get_inspecoes_by_cliente(cliente_id):
+    """Todas as inspeções de uma propriedade, ordenadas por quadra e data.
+    Base do relatório consolidado (aba CONTROLE do Excel)."""
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute(
+            """SELECT i.*, c.propriedade, c.proprietario, c.municipio, c.estado,
+                      q.numero_quadra, q.total_plantas, q.variedade
+               FROM inspecoes i
+               JOIN clientes c ON i.cliente_id = c.id
+               JOIN quadras q ON i.quadra_id = q.id
+               WHERE i.cliente_id = ?
+               ORDER BY CAST(q.numero_quadra AS INTEGER), q.numero_quadra, i.data_inspecao""",
+            (cliente_id,)
+        ).fetchall()]
+
+
 def finalize_inspecao(inspecao_id):
     with get_db() as conn:
         conn.execute("UPDATE inspecoes SET status='concluida' WHERE id=?", (inspecao_id,))
