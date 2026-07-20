@@ -23,3 +23,14 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Planilhas de referência (dados de clientes — nunca subir)
+*.xlsx
+*.xlsm
+*.xls
+
+# PDFs de teste gerados localmente
+teste_*.pdf
+
+# Config local de dev (launch do preview)
+.claude/

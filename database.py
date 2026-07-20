@@ -3,11 +3,34 @@ import os
 from contextlib import contextmanager
 from io import BytesIO
 
-DB_PATH = os.environ.get("ISA_DB_PATH", "isa_citros.db")
+# ══════════════════════════════════════════════════════════════════════════════
+# CAMADA DE ACESSO A DADOS
+# ------------------------------------------------------------------------------
+# TODO o SQL do sistema vive neste arquivo. As páginas (app.py, pages/*) só
+# chamam funções daqui — nunca abrem conexão nem escrevem SQL. Isso torna a
+# migração futura para Supabase/PostgreSQL uma troca localizada:
+#
+#   Para migrar para Supabase no futuro:
+#   1. Setar DB_BACKEND="supabase" e as credenciais no ambiente.
+#   2. Reimplementar get_db() (ou um adaptador equivalente) apontando para o
+#      Postgres do Supabase. A sintaxe SQL é quase idêntica; os pontos de
+#      atenção são: placeholders (? → %s), AUTOINCREMENT → SERIAL/IDENTITY,
+#      ON CONFLICT (já compatível), e datetime('now','localtime') → now().
+#   3. Nenhuma página precisa mudar.
+# ══════════════════════════════════════════════════════════════════════════════
+
+DB_BACKEND = os.environ.get("DB_BACKEND", "sqlite")   # "sqlite" (atual) | "supabase" (futuro)
+DB_PATH    = os.environ.get("ISA_DB_PATH", "isa_citros.db")
 
 
 @contextmanager
 def get_db():
+    """Conexão única do sistema. Ponto de troca para Supabase no futuro."""
+    if DB_BACKEND != "sqlite":
+        raise NotImplementedError(
+            f"DB_BACKEND='{DB_BACKEND}' ainda não implementado. "
+            f"Apenas 'sqlite' está disponível — ver notas no topo de database.py."
+        )
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")

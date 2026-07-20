@@ -3,12 +3,13 @@ import pandas as pd
 from datetime import datetime
 from database import (
     init_db, get_inspecao_by_id, get_pragas,
-    save_praga_plantas, get_inspecao_summary,
+    save_praga_plantas, save_planta_pragas, get_planta_pragas, get_inspecao_summary,
     save_observacoes_inspecao, get_observacoes_inspecao, get_observacoes_biblioteca,
     update_ultima_planta, finalize_inspecao,
     save_foto, get_fotos_by_planta, delete_foto, get_foto_data
 )
 from calculations import calcular_incidencia
+from pdf_report import gerar_pdf_ficha_campo
 from seed_data import seed
 
 st.set_page_config(
@@ -205,7 +206,7 @@ SECOES_GRID = [
     {
         "nome": "🔴 ÁCARO FERRUGEM",
         "css_class": "secao-ferrugem",
-        "info": "Fruto/Folha — marque as plantas com ferrugem. Limiar: **<10 ácaros = 10%** | **≥10 ácaros = 5%**",
+        "info": "Fruto/Folha — marque as plantas com ferrugem. Limiar: <b>&lt;10 ácaros = 10%</b> | <b>≥10 ácaros = 5%</b>",
         "pragas": [
             "Ácaro Ferrugem (< 10 ácaros)",
             "Ácaro Ferrugem (10 ou + ácaros)",
@@ -214,7 +215,7 @@ SECOES_GRID = [
     {
         "nome": "🟠 ÁCARO LEPROSE",
         "css_class": "secao-leprose",
-        "info": "Fruto/Ramo — vetor da Leprose Cítrica. Limiar: **1%**. Qualquer presença exige ação.",
+        "info": "Fruto/Ramo — vetor da Leprose Cítrica. Limiar: <b>1%</b>. Qualquer presença exige ação.",
         "pragas": [
             "Ácaro Leprose",
         ],
@@ -285,56 +286,18 @@ def _build_cc(total_plantas):
     return cc
 
 
-cc = _build_cc(total_plantas)
-all_edited_sections = {}   # secao_nome → (edited_df, [praga_ids])
+# ── Modo de preenchimento ─────────────────────────────────────────────────────
+modo = st.radio(
+    "Modo de preenchimento",
+    ["📱 Modo Planta", "📊 Modo Grade"],
+    horizontal=True,
+    key="modo_campo",
+    help="Modo Planta: uma planta por vez, ideal no celular. "
+         "Modo Grade: matriz completa, ideal no computador. "
+         "Os dois editam os mesmos dados.",
+)
 
-for sec in SECOES_GRID:
-    sname = sec['nome']
-    # Título da seção
-    st.markdown(
-        f'<div class="secao-titulo {sec["css_class"]}">{sname}</div>',
-        unsafe_allow_html=True
-    )
-    if sec.get('info'):
-        st.markdown(f'<div class="info-box">ℹ️ {sec["info"]}</div>', unsafe_allow_html=True)
-
-    df_sec, ids_sec = _build_secao_df(
-        sec['pragas'], pragas_map, summary, total_plantas, total_insp
-    )
-    if df_sec.empty:
-        st.caption("_(sem pragas desta seção na base de dados)_")
-        continue
-
-    # Highlight para pragas acima do limiar
-    acima_nomes = []
-    for _, row in df_sec.iterrows():
-        if row['Limiar %'] > 0 and row['%'] >= row['Limiar %']:
-            acima_nomes.append(row['Praga / Doença'])
-    if acima_nomes:
-        st.warning(f"⚠️ Acima do limiar: {', '.join(acima_nomes)}")
-
-    safe_key = (sname
-                .replace(' ', '_')
-                .replace('/', '_')
-                .replace('á', 'a').replace('â', 'a').replace('ã', 'a').replace('à', 'a')
-                .replace('é', 'e').replace('ê', 'e')
-                .replace('í', 'i')
-                .replace('ó', 'o').replace('ô', 'o').replace('õ', 'o')
-                .replace('ú', 'u').replace('ç', 'c')
-                .replace('🔴', '').replace('🟠', '').replace('🐛', '').replace('🌿', '')
-                .strip('_'))
-
-    edited_df = st.data_editor(
-        df_sec,
-        column_config=cc,
-        hide_index=True,
-        use_container_width=True,
-        num_rows='fixed',
-        key=f'grid_{safe_key}',
-    )
-    all_edited_sections[sname] = (edited_df, ids_sec)
-
-# ── Contador de pragas acima do limiar (total) ────────────────────────────────
+# Contador global de pragas acima do limiar
 acima_count = sum(
     1 for praga in pragas
     if calcular_incidencia(
@@ -344,23 +307,150 @@ acima_count = sum(
 
 st.divider()
 
-# ── Botão Salvar grade ────────────────────────────────────────────────────────
-col_sv, col_info = st.columns([2, 5])
-with col_sv:
-    if st.button("💾 Salvar Ficha de Campo", type="primary", use_container_width=True):
-        for sname, (edited_df, ids_sec) in all_edited_sections.items():
-            for i, row in edited_df.iterrows():
-                praga_id = ids_sec[i]
-                marcadas = [p for p in range(1, total_plantas + 1)
-                            if row.get(f'p{p}', False)]
-                save_praga_plantas(inspecao_id, praga_id, marcadas)
-                if marcadas:
-                    update_ultima_planta(inspecao_id, max(marcadas))
-        st.success("✅ Ficha de campo salva!")
-        st.rerun()
-with col_info:
-    st.info(f"💡 Marque ✅ nas plantas com presença e clique **Salvar**. "
-            f"Pragas acima do limiar: **{acima_count}**")
+# ══════════════════════════════════════════════════════════════════════════════
+# MODO GRADE — matriz pragas × plantas (fiel ao Excel)
+# ══════════════════════════════════════════════════════════════════════════════
+if modo == "📊 Modo Grade":
+    cc = _build_cc(total_plantas)
+    all_edited_sections = {}   # secao_nome → (edited_df, [praga_ids])
+
+    for sec in SECOES_GRID:
+        sname = sec['nome']
+        st.markdown(
+            f'<div class="secao-titulo {sec["css_class"]}">{sname}</div>',
+            unsafe_allow_html=True
+        )
+        if sec.get('info'):
+            st.markdown(f'<div class="info-box">ℹ️ {sec["info"]}</div>', unsafe_allow_html=True)
+
+        df_sec, ids_sec = _build_secao_df(
+            sec['pragas'], pragas_map, summary, total_plantas, total_insp
+        )
+        if df_sec.empty:
+            st.caption("_(sem pragas desta seção na base de dados)_")
+            continue
+
+        acima_nomes = [row['Praga / Doença'] for _, row in df_sec.iterrows()
+                       if row['Limiar %'] > 0 and row['%'] >= row['Limiar %']]
+        if acima_nomes:
+            st.warning(f"⚠️ Acima do limiar: {', '.join(acima_nomes)}")
+
+        safe_key = (sname
+                    .replace(' ', '_').replace('/', '_')
+                    .replace('á', 'a').replace('â', 'a').replace('ã', 'a').replace('à', 'a')
+                    .replace('é', 'e').replace('ê', 'e').replace('í', 'i')
+                    .replace('ó', 'o').replace('ô', 'o').replace('õ', 'o')
+                    .replace('ú', 'u').replace('ç', 'c')
+                    .replace('🔴', '').replace('🟠', '').replace('🐛', '').replace('🌿', '')
+                    .strip('_'))
+
+        edited_df = st.data_editor(
+            df_sec,
+            column_config=cc,
+            hide_index=True,
+            use_container_width=True,
+            num_rows='fixed',
+            key=f'grid_{safe_key}',
+        )
+        all_edited_sections[sname] = (edited_df, ids_sec)
+
+    col_sv, col_info = st.columns([2, 5])
+    with col_sv:
+        if st.button("💾 Salvar Ficha de Campo", type="primary", use_container_width=True):
+            for sname, (edited_df, ids_sec) in all_edited_sections.items():
+                for i, row in edited_df.iterrows():
+                    praga_id = ids_sec[i]
+                    marcadas = [p for p in range(1, total_plantas + 1)
+                                if row.get(f'p{p}', False)]
+                    save_praga_plantas(inspecao_id, praga_id, marcadas)
+                    if marcadas:
+                        update_ultima_planta(inspecao_id, max(marcadas))
+            st.success("✅ Ficha de campo salva!")
+            st.rerun()
+    with col_info:
+        st.info(f"💡 Marque ✅ nas plantas com presença e clique **Salvar**. "
+                f"Pragas acima do limiar: **{acima_count}**")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODO PLANTA — uma planta por vez (rápido no celular)
+# ══════════════════════════════════════════════════════════════════════════════
+else:
+    # Aplica avanço programático ANTES de instanciar o widget number_input
+    if 'planta_goto' in st.session_state:
+        st.session_state['num_planta_campo'] = st.session_state.pop('planta_goto')
+
+    col_p1, col_p2 = st.columns([1, 2])
+    with col_p1:
+        planta_sel = st.number_input(
+            "🌳 Planta atual", min_value=1, max_value=total_plantas,
+            step=1, key='num_planta_campo')
+    with col_p2:
+        registradas = sorted(all_plants_reg)
+        st.markdown(
+            f'<div class="info-box">Plantas com registro: '
+            f'<b>{len(registradas)}</b> de {total_plantas} &nbsp;·&nbsp; '
+            f'Última: <b>{max(registradas) if registradas else 0}</b></div>',
+            unsafe_allow_html=True)
+
+    pragas_da_planta = set(get_planta_pragas(inspecao_id, planta_sel))
+    selected = []
+
+    for sec in SECOES_GRID:
+        st.markdown(
+            f'<div class="secao-titulo {sec["css_class"]}">{sec["nome"]}</div>',
+            unsafe_allow_html=True)
+        pragas_sec = [pragas_map[n] for n in sec['pragas'] if n in pragas_map]
+        cols = st.columns(2)
+        for idx, praga in enumerate(pragas_sec):
+            pid = praga['id']
+            lim = praga['limiar_acao'] * 100
+            label = praga['nome']
+            if lim > 0:
+                label += f"  ·  limiar {lim:.0f}%"
+            with cols[idx % 2]:
+                if st.checkbox(label, value=pid in pragas_da_planta,
+                               key=f"chk_{planta_sel}_{pid}"):
+                    selected.append(pid)
+
+    st.divider()
+    cpa, cpb, cpc = st.columns(3)
+    with cpa:
+        if st.button("💾 Salvar planta", use_container_width=True):
+            save_planta_pragas(inspecao_id, planta_sel, selected)
+            update_ultima_planta(inspecao_id, planta_sel)
+            st.success(f"Planta {planta_sel} salva!")
+            st.rerun()
+    with cpb:
+        if st.button("✅ Salvar e próxima →", type="primary", use_container_width=True):
+            save_planta_pragas(inspecao_id, planta_sel, selected)
+            update_ultima_planta(inspecao_id, planta_sel)
+            if planta_sel < total_plantas:
+                st.session_state['planta_goto'] = planta_sel + 1
+            st.rerun()
+    with cpc:
+        st.markdown(
+            f'<div class="info-box">Pragas acima do limiar (total): '
+            f'<b>{acima_count}</b></div>', unsafe_allow_html=True)
+
+st.divider()
+
+# ── Exportar PDF da Ficha de Campo (disponível nos dois modos) ────────────────
+col_pdf1, col_pdf2 = st.columns([2, 3])
+with col_pdf1:
+    if st.button("📄 Gerar PDF da Ficha de Campo", use_container_width=True):
+        st.session_state['pdf_campo_bytes'] = gerar_pdf_ficha_campo(inspecao)
+    if 'pdf_campo_bytes' in st.session_state:
+        nome_pdf = (f"Ficha_Campo_{inspecao['propriedade'].replace(' ', '_')}"
+                    f"_Q{inspecao['numero_quadra']}"
+                    f"_{inspecao['data_inspecao'].replace('-', '')}.pdf")
+        st.download_button(
+            "⬇️ Baixar PDF da Ficha de Campo",
+            data=st.session_state['pdf_campo_bytes'],
+            file_name=nome_pdf, mime="application/pdf",
+            use_container_width=True)
+with col_pdf2:
+    st.caption("O PDF replica a grade da planilha Excel (paisagem, plantas em "
+               "blocos de 35, com % e limiar). Salve antes de gerar para refletir os dados atuais.")
 
 st.divider()
 
@@ -460,9 +550,15 @@ INDICE_GROUPS = {
                                 'planta_daninha', 'operacional', 'geral')],
 }
 
+# Uma observação pode casar em mais de um grupo (ex.: "PRESENÇA DE ÁCAROS DA
+# LEPROSE" bate em FERRUGEM por 'ácaro' e em LEPROSE por 'leprose'). Cada obs
+# deve aparecer só uma vez para não gerar key de widget duplicada.
+_obs_shown = set()
 for grupo_nome, items in INDICE_GROUPS.items():
+    items = [o for o in items if o['id'] not in _obs_shown]
     if not items:
         continue
+    _obs_shown.update(o['id'] for o in items)
     expanded = grupo_nome in ('ÁCAROS DA FERRUGEM', 'ÁCAROS DA LEPROSE')
     with st.expander(f"▸ {grupo_nome}", expanded=expanded):
         cols = st.columns(2)

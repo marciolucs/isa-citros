@@ -1,14 +1,18 @@
 from io import BytesIO
+from datetime import datetime
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image
 )
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
-from calculations import get_relatorio_pragas, consolidar_quarentenaria
-from database import get_observacoes_inspecao, get_fotos_by_inspecao, get_total_inspecionado
+from calculations import get_relatorio_pragas, consolidar_quarentenaria, calcular_incidencia
+from database import (
+    get_observacoes_inspecao, get_fotos_by_inspecao, get_total_inspecionado,
+    get_pragas, get_inspecao_summary,
+)
 
 # ── Cores compartilhadas ───────────────────────────────────────────────────────
 _VERDE_FICHA   = colors.HexColor("#009644")   # cabeçalho tabela (mesmo Excel GH)
@@ -593,6 +597,254 @@ def gerar_pdf_ficha_quarentenaria(
         "Documento gerado pelo Sistema ISA — Gestão de Inspeção Fitossanitária de Citros",
         S['small']
     ))
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PDF da Ficha de Campo — grade pragas × plantas (fiel à aba "Citros " do Excel)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Estrutura de seções idêntica à página 2_Campo.py (mesma ordem do Excel).
+_CAMPO_SECOES = [
+    ("ÁCARO FERRUGEM", colors.HexColor("#C62828"), colors.HexColor("#FFEBEE"), [
+        "Ácaro Ferrugem (< 10 ácaros)",
+        "Ácaro Ferrugem (10 ou + ácaros)",
+    ]),
+    ("ÁCARO LEPROSE", colors.HexColor("#E65100"), colors.HexColor("#FFF3E0"), [
+        "Ácaro Leprose",
+    ]),
+    ("PRAGAS DIVERSAS", colors.HexColor("#4527A0"), colors.HexColor("#EDE7F6"), [
+        "Ácaro Branco", "Mosca das Frutas", "Bicho Furão", "Ácaro Purpúreo",
+        "Ácaro Mexicano", "Ácaro Texano", "Pulgão Verde", "Pulgão Preto",
+        "Lagarta", "Minadora das Folhas", "Tripes", "Psilídeo",
+    ]),
+    ("INIMIGOS NATURAIS", colors.HexColor("#1B5E20"), colors.HexColor("#E8F5E9"), [
+        "Inimigos Naturais",
+    ]),
+]
+
+_DIAS_PT = ['SEGUNDA-FEIRA', 'TERÇA-FEIRA', 'QUARTA-FEIRA',
+            'QUINTA-FEIRA', 'SEXTA-FEIRA', 'SÁBADO', 'DOMINGO']
+
+
+def _fmt_data_pt(s):
+    if not s:
+        return '—', ''
+    try:
+        dt = datetime.strptime(s, '%Y-%m-%d')
+        return f"{dt.day:02d}/{dt.month:02d}/{dt.year}", _DIAS_PT[dt.weekday()]
+    except Exception:
+        return s, ''
+
+
+def gerar_pdf_ficha_campo(inspecao: dict) -> bytes:
+    """Gera o PDF da ficha de campo no formato de grade (pragas nas linhas,
+    plantas nas colunas), replicando a aba 'Citros ' do ISAeGUI.xlsm."""
+
+    inspecao_id   = inspecao['id']
+    total_plantas = inspecao['total_plantas']
+    summary       = get_inspecao_summary(inspecao_id)
+    pragas        = get_pragas()
+    pragas_map    = {p['nome']: p for p in pragas}
+
+    # Plantas efetivamente inspecionadas (máx. registrada) para o cálculo do %.
+    all_plants = set()
+    for d in summary.values():
+        all_plants |= d['plantas']
+    n_insp     = max(all_plants) if all_plants else 0
+    total_insp = n_insp if n_insp > 0 else total_plantas
+    n_cols     = max(total_plantas, n_insp)
+
+    buffer = BytesIO()
+    BK = colors.black
+    WH = colors.white
+
+    S = {
+        'title': ParagraphStyle('fc_title', fontName='Helvetica-Bold', fontSize=13,
+                                 textColor=VERDE_ESCURO, alignment=TA_CENTER, spaceAfter=2),
+        'sub':   ParagraphStyle('fc_sub', fontName='Helvetica-Oblique', fontSize=8,
+                                 textColor=colors.HexColor("#6A1B9A"), alignment=TA_CENTER, spaceAfter=4),
+        'lbl':   ParagraphStyle('fc_lbl', fontName='Helvetica-Bold', fontSize=8, textColor=VERDE_ESCURO),
+        'val':   ParagraphStyle('fc_val', fontName='Helvetica-Bold', fontSize=8, textColor=colors.black),
+        'th':    ParagraphStyle('fc_th', fontName='Helvetica-Bold', fontSize=7,
+                                 textColor=WH, alignment=TA_CENTER),
+        'praga': ParagraphStyle('fc_praga', fontName='Helvetica-Bold', fontSize=7, textColor=BK),
+        'parte': ParagraphStyle('fc_parte', fontName='Helvetica', fontSize=6, textColor=colors.grey),
+        'sec':   ParagraphStyle('fc_sec', fontName='Helvetica-Bold', fontSize=8, textColor=WH),
+        'small': ParagraphStyle('fc_small', fontName='Helvetica', fontSize=7,
+                                textColor=colors.grey, alignment=TA_CENTER),
+        'obs':   ParagraphStyle('fc_obs', fontName='Helvetica', fontSize=7.5, textColor=BK, spaceAfter=1),
+        'alerta':ParagraphStyle('fc_alerta', fontName='Helvetica-Bold', fontSize=9,
+                                 textColor=VERMELHO, alignment=TA_CENTER),
+    }
+
+    doc = SimpleDocTemplate(
+        buffer, pagesize=landscape(A4),
+        leftMargin=1.0*cm, rightMargin=1.0*cm,
+        topMargin=1.0*cm,  bottomMargin=1.0*cm,
+    )
+    story = []
+
+    # ── Título ─────────────────────────────────────────────────────────────────
+    story.append(Paragraph("FICHA DE INSPEÇÃO FITOSSANITÁRIA EM CITROS", S['title']))
+    story.append(Paragraph(
+        '"LUCIANO COSTELLA, CONSULTORIA EM CITROS DESDE 2005"', S['sub']))
+
+    # ── Cabeçalho ──────────────────────────────────────────────────────────────
+    data_fmt, dia = _fmt_data_pt(inspecao.get('data_inspecao', ''))
+    prox_fmt, prox_dia = _fmt_data_pt(inspecao.get('proxima_inspecao', ''))
+
+    def _cell(lbl, val):
+        return Table(
+            [[Paragraph(f'<b>{lbl}</b>', S['lbl']), Paragraph(str(val), S['val'])]],
+            colWidths=[2.4*cm, 4.6*cm],
+            style=[('LEFTPADDING',(0,0),(-1,-1),1), ('RIGHTPADDING',(0,0),(-1,-1),1),
+                   ('TOPPADDING',(0,0),(-1,-1),1), ('BOTTOMPADDING',(0,0),(-1,-1),1),
+                   ('VALIGN',(0,0),(-1,-1),'MIDDLE')]
+        )
+
+    cab = [
+        [_cell('Propriedade:', inspecao['propriedade']),
+         _cell('Quadra:',      inspecao['numero_quadra']),
+         _cell('Data:',        f"{data_fmt}  {dia}")],
+        [_cell('Proprietário:', inspecao['proprietario']),
+         _cell('Variedade:',    inspecao['variedade']),
+         _cell('Nº Plantas Insp.:', n_insp or total_plantas)],
+        [_cell('Talhão:',   f"{inspecao['municipio']}-{inspecao['estado']}"),
+         _cell('Inspetor:', inspecao['inspetor']),
+         _cell('Próxima Insp.:', f"{prox_fmt}  {prox_dia}")],
+    ]
+    t_cab = Table(cab, colWidths=[9.4*cm, 9.0*cm, 9.0*cm])
+    t_cab.setStyle(TableStyle([
+        ('BOX',(0,0),(-1,-1), 0.8, VERDE_MEDIO),
+        ('INNERGRID',(0,0),(-1,-1), 0.4, colors.HexColor("#C8E6C9")),
+        ('BACKGROUND',(0,0),(-1,-1), colors.HexColor("#F9FBE7")),
+        ('LEFTPADDING',(0,0),(-1,-1),3), ('RIGHTPADDING',(0,0),(-1,-1),3),
+        ('TOPPADDING',(0,0),(-1,-1),2), ('BOTTOMPADDING',(0,0),(-1,-1),2),
+    ]))
+    story.append(t_cab)
+    story.append(Spacer(1, 6))
+
+    # ── Alerta Psilídeo ────────────────────────────────────────────────────────
+    psil = pragas_map.get("Psilídeo")
+    if psil and len(summary.get(psil['id'], {}).get('plantas', set())) > 0:
+        story.append(Paragraph(
+            "ALERTA — PSILIDEO DETECTADO (vetor do Greening/HLB). "
+            "Aplicar inseticida e notificar fiscalizacao.", S['alerta']))
+        story.append(Spacer(1, 4))
+
+    # ── Grade em blocos de 35 plantas ──────────────────────────────────────────
+    BLOCO = 35
+    usable_w = landscape(A4)[0] - 2.0*cm      # largura útil
+    lbl_w, parte_w, pct_w, lim_w = 3.6*cm, 2.0*cm, 1.0*cm, 1.0*cm
+
+    inicio = 1
+    while inicio <= n_cols:
+        fim = min(inicio + BLOCO - 1, n_cols)
+        plantas_bloco = list(range(inicio, fim + 1))
+        n = len(plantas_bloco)
+        col_plant_w = (usable_w - lbl_w - parte_w - pct_w - lim_w) / max(n, 1)
+
+        # Cabeçalho do bloco
+        header = [
+            Paragraph('Praga / Doença', S['th']),
+            Paragraph('Parte', S['th']),
+        ] + [Paragraph(str(p), S['th']) for p in plantas_bloco] + [
+            Paragraph('%', S['th']),
+            Paragraph('Lim', S['th']),
+        ]
+        data = [header]
+        row_styles = [
+            ('BACKGROUND', (0, 0), (-1, 0), VERDE_MEDIO),
+            ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor("#BDBDBD")),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ALIGN', (2, 0), (-1, -1), 'CENTER'),
+            ('TOPPADDING', (0, 0), (-1, -1), 1),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+            ('LEFTPADDING', (0, 0), (-1, -1), 1),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 1),
+        ]
+
+        r = 1
+        for sec_nome, sec_cor, sec_bg, sec_pragas in _CAMPO_SECOES:
+            # Linha de título da seção (mesclada)
+            sec_row = [Paragraph(sec_nome, S['sec'])] + [''] * (n + 3)
+            data.append(sec_row)
+            row_styles.append(('SPAN', (0, r), (-1, r)))
+            row_styles.append(('BACKGROUND', (0, r), (-1, r), sec_cor))
+            r += 1
+
+            for pnome in sec_pragas:
+                praga = pragas_map.get(pnome)
+                if not praga:
+                    continue
+                pid = praga['id']
+                plants_pest = summary.get(pid, {}).get('plantas', set())
+                inc = calcular_incidencia(len(plants_pest), total_insp)
+                lim = praga['limiar_acao'] * 100
+                acima = lim > 0 and inc >= lim
+
+                linha = [
+                    Paragraph(praga['nome'], S['praga']),
+                    Paragraph(praga.get('parte_avaliada', '') or '—', S['parte']),
+                ]
+                for p in plantas_bloco:
+                    linha.append(Paragraph('X', S['praga']) if p in plants_pest else '')
+                linha.append(Paragraph(f"{inc:.1f}", S['praga']))
+                linha.append(Paragraph(f"{lim:.0f}", S['praga']))
+                data.append(linha)
+
+                row_styles.append(('BACKGROUND', (0, r), (1, r), sec_bg))
+                # marca % acima do limiar em vermelho
+                if acima:
+                    row_styles.append(('BACKGROUND', (-2, r), (-1, r), VERMELHO_CLARO))
+                    row_styles.append(('TEXTCOLOR', (-2, r), (-2, r), VERMELHO))
+                # células com "X" em vermelho
+                for j, p in enumerate(plantas_bloco):
+                    if p in plants_pest:
+                        row_styles.append(('TEXTCOLOR', (2 + j, r), (2 + j, r), VERMELHO))
+                r += 1
+
+        col_ws = [lbl_w, parte_w] + [col_plant_w] * n + [pct_w, lim_w]
+        t = Table(data, colWidths=col_ws, repeatRows=1)
+        t.setStyle(TableStyle(row_styles))
+        story.append(t)
+        story.append(Spacer(1, 6))
+        inicio = fim + 1
+
+    # ── Observações gerais / Índice de Avaliação ───────────────────────────────
+    obs = get_observacoes_inspecao(inspecao_id)
+    if obs:
+        story.append(HRFlowable(width="100%", thickness=0.5, color=CINZA, spaceAfter=3))
+        story.append(Paragraph("<b>ÍNDICE DE AVALIAÇÃO / OBSERVAÇÕES GERAIS</b>", S['lbl']))
+        story.append(Spacer(1, 2))
+        # em duas colunas para aproveitar a largura landscape
+        meio = (len(obs) + 1) // 2
+        col_a = "<br/>".join(f"• {o}" for o in obs[:meio])
+        col_b = "<br/>".join(f"• {o}" for o in obs[meio:])
+        t_obs = Table(
+            [[Paragraph(col_a, S['obs']), Paragraph(col_b, S['obs'])]],
+            colWidths=[13.4*cm, 13.4*cm]
+        )
+        t_obs.setStyle(TableStyle([('VALIGN', (0,0),(-1,-1),'TOP'),
+                                   ('LEFTPADDING',(0,0),(-1,-1),4)]))
+        story.append(t_obs)
+        story.append(Spacer(1, 6))
+
+    # ── Rodapé + assinatura ────────────────────────────────────────────────────
+    story.append(HRFlowable(width="100%", thickness=0.5, color=CINZA, spaceAfter=4))
+    story.append(Paragraph(
+        "LUCIANO COSTELLA — TÉCNICO EM AGROPECUÁRIA CFTA 17893896825", S['small']))
+    story.append(Spacer(1, 8))
+    ass = [[
+        Paragraph(f"<b>Início da Inspeção:</b> {inspecao.get('inicio_inspecao','') or '___________'}", S['small']),
+        Paragraph("Assinatura: ________________________________", S['small']),
+    ]]
+    t_ass = Table(ass, colWidths=[13.4*cm, 13.4*cm])
+    t_ass.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),3), ('BOTTOMPADDING',(0,0),(-1,-1),3)]))
+    story.append(t_ass)
 
     doc.build(story)
     return buffer.getvalue()
